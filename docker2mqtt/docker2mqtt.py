@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Listens to docker events and stats for containers and sends it to mqtt and supports discovery for home assistant."""
 
+import docker
 import argparse
 import datetime
 import hashlib
@@ -137,7 +138,7 @@ class Docker2Mqtt:
     b_stats: bool = False
     b_events: bool = False
 
-    docker_events: Queue[str] = Queue(maxsize=MAX_QUEUE_SIZE)
+    docker_events: Queue[dict] = Queue(maxsize=MAX_QUEUE_SIZE)
     docker_stats: Queue[str] = Queue(maxsize=MAX_QUEUE_SIZE)
     known_event_containers: dict[str, ContainerEvent] = {}
     known_stat_containers: dict[str, ContainerStatsRef] = {}
@@ -202,6 +203,11 @@ class Docker2Mqtt:
             self.docker_version = self._get_docker_version()
         except FileNotFoundError as e:
             raise Docker2MqttConfigException("Could not get docker version") from e
+
+        try:
+            self.client = docker.from_env()
+        except Docker2MqttConfigException as e:
+            raise Docker2MqttConfigException("Could not get open docker api") from e
 
         if not self.do_not_exit:
             main_logger.info("Register signal handlers for SIGINT and SIGTERM")
@@ -643,17 +649,22 @@ class Docker2Mqtt:
         try:
             thread_logger.info("Starting events thread")
             thread_logger.debug("Command: %s", DOCKER_EVENTS_CMD)
-            with Popen(DOCKER_EVENTS_CMD, stdout=PIPE, text=True) as process:
-                while True:
-                    assert process.stdout
-                    line = ANSI_ESCAPE.sub("", process.stdout.readline())
-                    if line == "" and process.poll() is not None:
-                        break
-                    if line:
-                        if thread_logger.isEnabledFor(logging.DEBUG):
-                            thread_logger.debug("Read docker event line: %s", line)
-                        self.docker_events.put(line.strip())
-                    _rc = process.poll()
+            #
+            # loop to get the Docker events from the api here
+            #
+            for event in self.client.events(decode=True, filters={"type": "container"}):
+                self.docker_events.put(event)
+            #with Popen(DOCKER_EVENTS_CMD, stdout=PIPE, text=True) as process:
+            #    while True:
+            #        assert process.stdout
+            #        line = ANSI_ESCAPE.sub("", process.stdout.readline())
+            #        if line == "" and process.poll() is not None:
+            #            break
+            #        if line:
+            #            if thread_logger.isEnabledFor(logging.DEBUG):
+            #                thread_logger.debug("Read docker event line: %s", line)
+            #            self.docker_events.put(line.strip())
+            #        _rc = process.poll()
         except Exception as ex:
             thread_logger.exception("Error Running Events thread")
             thread_logger.debug(ex)
@@ -1066,16 +1077,16 @@ class Docker2Mqtt:
         docker_events_qsize = self.docker_events.qsize()
         try:
             if self.b_events:
-                event_line = self.docker_events.get(block=False)
+                event = self.docker_events.get(block=False)
             events_logger.debug("Events queue length: %s", docker_events_qsize)
         except Empty:
             # No data right now, just move along.
             pass
 
         if self.b_events and docker_events_qsize > 0:
-            if event_line and len(event_line) > 0:
+            if event : #and len(event_line) > 0:
                 try:
-                    event = json.loads(event_line)
+                    #event = json.loads(event_line)
                     action = event.get("status", event.get("Action", "unknown"))
                     if action not in WATCHED_EVENTS:
                         events_logger.info("Not a watched event: %s", action)
