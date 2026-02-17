@@ -109,6 +109,35 @@ class ContainerEvent(TypedDict):
     state: ContainerEventStateType
     health: NotRequired[ContainerHeathType]
 
+class ContainerStatus(TypedDict):
+    """A container event object to send to an mqtt topic.
+
+    Attributes
+    ----------
+    name
+        The name of the container
+    image
+        The image the container is running
+    status
+        The docker status the container is in
+    state
+        The state of the container
+    health
+        The health of the container
+
+    """
+
+    name: str
+    image: str
+    short_id : str
+    status : str
+    created : datetime
+    started_at : datetime
+    finished_at : datetime
+    exitcode : int
+    health : str
+
+
 
 class ContainerStatsRef(TypedDict):
     """A container stats ref object compare between current and past stats.

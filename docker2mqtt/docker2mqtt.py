@@ -140,6 +140,7 @@ class Docker2Mqtt:
 
     docker_events: Queue[dict] = Queue(maxsize=MAX_QUEUE_SIZE)
     docker_stats: Queue[dict] = Queue(maxsize=MAX_QUEUE_SIZE)
+    docker_status: Queue[dict] = Queue(maxsize=MAX_QUEUE_SIZE)
     known_event_containers: dict[str, ContainerEvent] = {}
     known_stat_containers: dict[str, ContainerStatsRef] = {}
     last_stat_containers: dict[str, ContainerStats | dict[str, Any]] = {}
@@ -267,6 +268,16 @@ class Docker2Mqtt:
                 started = True
         except Exception as ex:
             main_logger.exception("Error while trying to start stats thread.")
+            main_logger.debug(ex)
+            raise Docker2MqttConfigException from ex
+        
+        try:
+            if self.b_events:
+                main_logger.info("Starting Status thread")
+                self._start_readline_status_thread()
+                started = True
+        except Exception as ex:
+            main_logger.exception("Error while trying to start status thread.")
             main_logger.debug(ex)
             raise Docker2MqttConfigException from ex
 
@@ -476,6 +487,15 @@ class Docker2Mqtt:
                 self._start_readline_stats_thread()
         except Exception as ex:
             main_logger.exception("Error while trying to restart stats thread.")
+            main_logger.debug(ex)
+            raise Docker2MqttConfigException from ex
+        
+        try:
+            if self.b_events and not self.docker_status_t.is_alive():
+                main_logger.warning("Restarting status thread")
+                self._start_readline_stats_thread()
+        except Exception as ex:
+            main_logger.exception("Error while trying to restart status thread.")
             main_logger.debug(ex)
             raise Docker2MqttConfigException from ex
 
@@ -723,6 +743,55 @@ class Docker2Mqtt:
                         }
                         self.docker_stats.put(statDict)
                         print(f"[readline_stats] >>> putting stats for {container.name} in queue: {statDict['Name']} {statDict['memoryused']}")
+            except Exception as ex:
+                print(f"error reading stat data {ex}")
+            sleep(10)
+
+    def _start_readline_status_thread(self) -> None:
+        """Start the stats thread."""
+        self.docker_status_t = Thread(
+            target=self._run_readline_status_thread, daemon=True, name="Status"
+        )
+        self.docker_status_t.start()
+
+    def _run_readline_status_thread(self) -> None:
+        """Run docker events and continually read lines from it."""
+        thread_logger = logging.getLogger("status-thread")
+        configure_logger(
+            thread_logger, self.cfg["log_level"], self.cfg.get("log_dir", None)
+        )
+        while True:
+            try:
+                for container in self.client.containers.list(all=True):
+                    shortid = container.short_id
+                    health = container.health
+                    status = container.status
+                    image = container.image
+                    if len(image.tags)>0 :
+                        imagetag = image.tags[0]
+                    else :
+                        imagetag = ""
+                    created = container.attrs.get('Created',None)
+                    state = container.attrs.get('State',None)
+                    startedat = None
+                    finishedat = None
+                    exitcode = 0
+                    if state :
+                        startedat = state.get('StartedAt',None)
+                        finishedat = state.get('FinishedAt',None)
+                        exitcode = state.get('ExitCode',0)
+                    statusDict = {
+                        "Name":container.name,
+                        "image": imagetag,
+                        "shortid":shortid,
+                        "health":health,
+                        "created":created,
+                        "startedat":startedat,
+                        "finishedat": finishedat,
+                        "exitcode" : exitcode,
+                    }
+                    self.docker_status.put(statusDict)
+                    print(f"[readline_status] >>> putting status for {container.name} in queue: {statusDict['Name']} {statusDict['created']}")
             except Exception as ex:
                 print(f"error reading stat data {ex}")
             sleep(10)
