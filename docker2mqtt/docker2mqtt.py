@@ -139,7 +139,7 @@ class Docker2Mqtt:
     b_events: bool = False
 
     docker_events: Queue[dict] = Queue(maxsize=MAX_QUEUE_SIZE)
-    docker_stats: Queue[str] = Queue(maxsize=MAX_QUEUE_SIZE)
+    docker_stats: Queue[dict] = Queue(maxsize=MAX_QUEUE_SIZE)
     known_event_containers: dict[str, ContainerEvent] = {}
     known_stat_containers: dict[str, ContainerStatsRef] = {}
     last_stat_containers: dict[str, ContainerStats | dict[str, Any]] = {}
@@ -654,17 +654,6 @@ class Docker2Mqtt:
             #
             for event in self.client.events(decode=True, filters={"type": "container"}):
                 self.docker_events.put(event)
-            #with Popen(DOCKER_EVENTS_CMD, stdout=PIPE, text=True) as process:
-            #    while True:
-            #        assert process.stdout
-            #        line = ANSI_ESCAPE.sub("", process.stdout.readline())
-            #        if line == "" and process.poll() is not None:
-            #            break
-            #        if line:
-            #            if thread_logger.isEnabledFor(logging.DEBUG):
-            #                thread_logger.debug("Read docker event line: %s", line)
-            #            self.docker_events.put(line.strip())
-            #        _rc = process.poll()
         except Exception as ex:
             thread_logger.exception("Error Running Events thread")
             thread_logger.debug(ex)
@@ -683,24 +672,60 @@ class Docker2Mqtt:
         configure_logger(
             thread_logger, self.cfg["log_level"], self.cfg.get("log_dir", None)
         )
-        try:
-            thread_logger.info("Starting stats thread")
-            thread_logger.debug("Command: %s", DOCKER_STATS_CMD)
-            with Popen(DOCKER_STATS_CMD, stdout=PIPE, text=True) as process:
-                while True:
-                    assert process.stdout
-                    line = ANSI_ESCAPE.sub("", process.stdout.readline())
-                    if line == "" and process.poll() is not None:
-                        break
-                    if line:
-                        if thread_logger.isEnabledFor(logging.DEBUG):
-                            thread_logger.debug("Read docker stat line: %s", line)
-                        self.docker_stats.put(line.strip())
-                    _rc = process.poll()
-        except Exception as ex:
-            thread_logger.exception("Error Running Stats thread")
-            thread_logger.debug(ex)
-            thread_logger.debug("Waiting for main thread to restart this thread")
+
+        while True:
+            try:
+                for container in self.client.containers.list(all=True): # could filter here ...
+                    if container.status != 'foo' :
+                        cpuused = 0
+                        cputotal = 0
+                        memorylimit = 0
+                        mem_used = 0
+                        nettx = 0
+                        netrx = 0
+                        blkiorx = 0
+                        blkiotx = 0
+                        cores = 0
+                        stats = container.stats(stream=False)
+                        if len(stats['memory_stats']) == 0 :
+                            mem_used = 0
+                            memorylimit = 0
+                        else :
+                            memorylimit = stats['memory_stats']['limit']
+                            # to get exactly what docker stats give use the following - from the code for docker stats command
+                            mem_used = stats["memory_stats"]["usage"] - stats["memory_stats"]["stats"]["inactive_file"]
+                            cpuused = stats['cpu_stats']['cpu_usage']['total_usage']
+                            cputotal = stats['cpu_stats']['system_cpu_usage']
+                            cores = stats['cpu_stats']['online_cpus']
+                            netstats = stats['networks'].items()
+                            if netstats :
+                                for network, ioinfo in stats['networks'].items():
+                                    #print(f"Network info for {network}")
+                                    netrx += ioinfo['rx_bytes']
+                                    nettx += ioinfo['tx_bytes']
+
+                            blkstats = stats['blkio_stats']['io_service_bytes_recursive']
+                            if blkstats:
+                                for blkioinfo in stats['blkio_stats']['io_service_bytes_recursive']:
+                                    if blkioinfo['op']=='read' : blkiorx = blkioinfo['value']
+                                    if blkioinfo['op']=='write': blkiotx = blkioinfo['value'] 
+                        statDict = {
+                            "Name":container.name,
+                            "memoryused":mem_used,
+                            "memorylimit":memorylimit,
+                            "cpuused":cpuused,
+                            "cputotal":cputotal,
+                            "cores": cores,
+                            "netrx" : netrx,
+                            "nettx" : nettx,
+                            "blkiorx" : blkiorx,
+                            "blkiotx" : blkiotx
+                        }
+                        self.docker_stats.put(statDict)
+                        print(f"[readline_stats] >>> putting stats for {container.name} in queue: {statDict['Name']} {statDict['memoryused']}")
+            except Exception as ex:
+                print(f"error reading stat data {ex}")
+            sleep(10)
 
     def _device_definition(
         self, container_entry: ContainerEvent
@@ -1235,12 +1260,12 @@ class Docker2Mqtt:
             If anything goes wrong in the processing of the stats
 
         """
-        stat_line = ""
+        stat_dict= {}
 
         docker_stats_qsize = self.docker_stats.qsize()
         try:
             if self.b_stats:
-                stat_line = self.docker_stats.get(block=False)
+                stat_dict = self.docker_stats.get(block=False)
             stats_logger.debug("Stats queue length: %s", docker_stats_qsize)
         except Empty:
             # No data right now, just move along.
@@ -1253,14 +1278,14 @@ class Docker2Mqtt:
             #################################
 
         if self.b_stats and docker_stats_qsize > 0:
-            if stat_line and len(stat_line) > 0:
+            if stat_dict and len(stat_dict) > 0:
                 try:
-                    stat_line = "".join(
-                        [c for c in stat_line if ord(c) > 31 or ord(c) == 9]
-                    )
-                    stat_line = stat_line.lstrip("[2J[H")
+                    #stat_line = "".join(
+                    #    [c for c in stat_line if ord(c) > 31 or ord(c) == 9]
+                    #)
+                    #stat_line = stat_line.lstrip("[2J[H")
                     # print(':'.join(hex(ord(x))[2:] for x in stat_line))
-                    stat = json.loads(stat_line)
+                    stat = stat_dict #json.loads(stat_line)
                     # print("loaded json")
                     # print(stat)
                     container: str = stat["Name"]
@@ -1273,7 +1298,7 @@ class Docker2Mqtt:
                             "Have a Stat to process for container: %s", container
                         )
 
-                    if stat["MemUsage"] == "-- / --":
+                    if stat["memoryused"] == 0:
                         stats_logger.debug(
                             "Skip container with no stats: %s", container
                         )
@@ -1301,7 +1326,7 @@ class Docker2Mqtt:
                                 container,
                             )
                         return
-
+                    stat_line = json.dumps(stat)
                     stat_key = hashlib.md5(stat_line.encode("utf-8")).hexdigest()
                     existing_stat_key = self.known_stat_containers[container]["key"]
                     if stats_logger.isEnabledFor(logging.DEBUG):
@@ -1330,30 +1355,26 @@ class Docker2Mqtt:
                     # regex = r"(?P<used>\d+?\.?\d+?)(?P<used_symbol>[MG]iB)\s+\/\s(?P<limit>\d+?\.?\d+?)(?P<limit_symbol>[MG]iB)"
                     # regex = r"(?P<used>.+?)(?P<used_symbol>[kKMGT]?i?B)\s+\/\s+(?P<limit>.+?)(?P<limit_symbol>[kKMGT]?i?B)"
 
-                    if stats_logger.isEnabledFor(logging.DEBUG):
-                        stats_logger.debug(
-                            'Getting memory from "%s" with "%s"',
-                            stat["MemUsage"],
-                            MEM_RE,
-                        )
-                    matches = MEM_RE.match(stat["MemUsage"])
-                    mem_mb_used, mem_mb_limit = self._stat_to_value(
-                        "MEMORY", container, matches
-                    )
+                    # here calculate the cpu and memory used
+                    last_stat = self.last_stat_containers[container]
+                    delta_cpu_used = 0
+                    delta_total_cpu = 0
+                    cpu_percent = 0
+                    if len(last_stat) >0 :
+                        delta_cpu_used = stat["cpuused"]-last_stat['cpuused'] 
+                        delta_total_cpu = stat["cputotal"]-last_stat['systemcpu']
+                        cores = stat['cores']
+                        # this now works - needed to add the cores ...
+                        cpu_percent = float(delta_cpu_used*cores*100.)/float(delta_total_cpu) if delta_total_cpu > 0 else 0
 
-                    if stats_logger.isEnabledFor(logging.DEBUG):
-                        stats_logger.debug(
-                            'Getting NETIO from "%s" with "%s"', stat["NetIO"], MEM_RE
-                        )
-                    matches = MEM_RE.match(stat["NetIO"])
-                    netinput, netoutput = self._stat_to_value(
-                        "NETIO", container, matches
-                    )
+                    mbused = float(stat['memoryused'])/float(1024.*1024.)
+                    memString = f"{mbused:.3f}MiB/{stat['memorylimit']/float(1024.*1024.*1024.):.3f}GiB"
+
                     netinputrate = (
                         max(
                             0,
                             (
-                                netinput
+                                stat['netrx']
                                 - self.last_stat_containers[container].get(
                                     "netinput", 0
                                 )
@@ -1365,7 +1386,7 @@ class Docker2Mqtt:
                         max(
                             0,
                             (
-                                netoutput
+                                stat['nettx']
                                 - self.last_stat_containers[container].get(
                                     "netoutput", 0
                                 )
@@ -1373,22 +1394,14 @@ class Docker2Mqtt:
                         )
                         / delta_seconds
                     )
+                    netioString = f"{stat['netrx']/float(1024.):.3f}kB/{stat['nettx']/float(1024.):.3f}kB"
 
-                    if stats_logger.isEnabledFor(logging.DEBUG):
-                        stats_logger.debug(
-                            'Getting BLOCKIO from "%s" with "%s"',
-                            stat["BlockIO"],
-                            MEM_RE,
-                        )
-                    matches = MEM_RE.match(stat["BlockIO"])
-                    blockinput, blockoutput = self._stat_to_value(
-                        "BLOCKIO", container, matches
-                    )
+
                     blockinputrate = (
                         max(
                             0,
                             (
-                                blockinput
+                               stat['blkiorx']
                                 - self.last_stat_containers[container].get(
                                     "blockinput", 0
                                 )
@@ -1400,7 +1413,7 @@ class Docker2Mqtt:
                         max(
                             0,
                             (
-                                blockoutput
+                                stat['blkiotx']
                                 - self.last_stat_containers[container].get(
                                     "blockoutput", 0
                                 )
@@ -1413,18 +1426,21 @@ class Docker2Mqtt:
                         {
                             "name": container,
                             "host": self.cfg["docker2mqtt_hostname"],
-                            "cpu": float(stat["CPUPerc"].strip("%")),
-                            "memory": stat["MemUsage"],
-                            "memoryused": mem_mb_used,
-                            "memorylimit": mem_mb_limit,
-                            "netio": stat["NetIO"],
-                            "netinput": netinput,
+                            "cpu": cpu_percent,
+                            "cpuused": stat['cpuused'],
+                            "systemcpu": stat['cputotal'],
+                            "cores": stat['cores'],
+                            "memory": memString,
+                            "memoryused": stat["memoryused"],
+                            "memorylimit": stat["memorylimit"],
+                            "netio": netioString,
+                            "netinput": stat['netrx'],
                             "netinputrate": netinputrate,
-                            "netoutput": netoutput,
+                            "netoutput": stat['nettx'],
                             "netoutputrate": netoutputrate,
-                            "blockinput": blockinput,
+                            "blockinput": stat['blkiorx'],
                             "blockinputrate": blockinputrate,
-                            "blockoutput": blockoutput,
+                            "blockoutput": stat['blkiotx'],
                             "blockoutputrate": blockoutputrate,
                         }
                     )

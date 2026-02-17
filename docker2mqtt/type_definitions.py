@@ -179,7 +179,9 @@ class ContainerStats(TypedDict):
     blockoutput: float
     blockoutputrate: float
     cpu: float
-
+    cpuused: float
+    systemcpu : float
+    cores : int
 
 class ContainerDeviceEntry(TypedDict):
     """A container device entry object for discovery in home assistant.

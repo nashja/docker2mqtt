@@ -80,6 +80,9 @@ class ContainerStats(TypedDict):
     blockinputrate: float
     blockoutput: float
     blockoutputrate: float
+    cpuused: float
+    systemcpu: float
+    cores : int
     cpu: float
 
 
@@ -199,32 +202,90 @@ class DockerAPITest:
                     delta_total_cpu = 0
                     cpu_percent = 0
                     if len(last_stat) >0 :
-                        delta_cpu_used = stat["cpuused"]-last_stat['netinput'] 
-                        delta_total_cpu = stat["cputotal"]-last_stat['netoutput']
+                        delta_cpu_used = stat["cpuused"]-last_stat['cpuused'] 
+                        delta_total_cpu = stat["cputotal"]-last_stat['systemcpu']
                         cores = stat['cores']
                         # this now works - needed to add the cores ...
                         cpu_percent = float(delta_cpu_used*cores)/float(delta_total_cpu) if delta_total_cpu > 0 else 0
+
+                    mbused = float(stat['memoryused'])/float(1024.*1024.)
+                    memString = f"{mbused:.3f}MiB/{stat['memorylimit']/float(1024.*1024.*1024.):.3f}GiB"
+
+
+                    netinputrate = (
+                        max(
+                            0,
+                            (
+                                stat['netrx']
+                                - self.last_stat_containers[container].get(
+                                    "netinput", 0
+                                )
+                            ),
+                        )
+                        / delta_seconds
+                    )
+                    netoutputrate = (
+                        max(
+                            0,
+                            (
+                                stat['nettx']
+                                - self.last_stat_containers[container].get(
+                                    "netoutput", 0
+                                )
+                            ),
+                        )
+                        / delta_seconds
+                    )
+                    netioString = f"{stat['netrx']/float(1024.):.3f}kB/{stat['nettx']/float(1024.):.3f}kB"
+
+                    blockinputrate = (
+                        max(
+                            0,
+                            (
+                                stat['blkiorx']
+                                - self.last_stat_containers[container].get(
+                                    "blockinput", 0
+                                )
+                            ),
+                        )
+                        / delta_seconds
+                    )
+                    blockoutputrate = (
+                        max(
+                            0,
+                            (
+                                stat['blkiotx']
+                                - self.last_stat_containers[container].get(
+                                    "blockoutput", 0
+                                )
+                            ),
+                        )
+                        / delta_seconds
+                    )
 
                     container_stats = ContainerStats(
                         {
                             "name": container,
                             "host": "test",
                             "cpu": cpu_percent,
-                            "memory": "foo",
+                            "cpuused": stat['cpuused'],
+                            "systemcpu": stat['cputotal'],
+                            "cores": stat['cores'],
+                            "memory": memString,
                             "memoryused": stat["memoryused"],
                             "memorylimit": stat["memorylimit"],
-                            "netio": "bar",
-                            "netinput": delta_cpu_used,
-                            "netinputrate": 0,
-                            "netoutput": delta_total_cpu,
-                            "netoutputrate": 0,
-                            "blockinput": 0,
-                            "blockinputrate": 0,
-                            "blockoutput": 0,
-                            "blockoutputrate": 0,
+                            "netio": netioString,
+                            "netinput": stat['netrx'],
+                            "netinputrate": netinputrate,
+                            "netoutput": stat['nettx'],
+                            "netoutputrate": netoutputrate,
+                            "blockinput": stat['blkiorx'],
+                            "blockinputrate": blockinputrate,
+                            "blockoutput": stat['blkiotx'],
+                            "blockoutputrate": blockinputrate
                         }
                     )
-                    print(f"[handle_stats] container stats are {container_stats['name']} cpu = {container_stats['netinput']} cpu: {cpu_percent*100:.4f} %")
+                    print(f"[handle_stats] {container_stats['name']} mem {container_stats['memory']} net {container_stats['netio']} cpu: {cpu_percent*100:.4f} %")
                     self.last_stat_containers[container] = container_stats
 
                 except Exception as ex:
@@ -241,29 +302,53 @@ class DockerAPITest:
 
     def _run_readline_stats_thread(self) -> None:
         """Run docker events and continually read lines from it."""
-        try:
-            while True:
+        while True:
+            try:
                 for container in self.client.containers.list(all=True): # could filter here ...
                     if container.status == 'running' :
                         stats = container.stats(stream=False)
-                        memoryused = stats['memory_stats']['usage']
-                        memorylimit = stats['memory_stats']['limit']
-                        cpuused = stats['cpu_stats']['cpu_usage']['total_usage']
-                        cputotal = stats['cpu_stats']['system_cpu_usage']
-                        cores = stats['cpu_stats']['online_cpus']
+                        if len(stats['memory_stats']) == 0 :
+                            mem_used = 0
+                            memorylimit = 0
+                        else :
+                            memorylimit = stats['memory_stats']['limit']
+                            # to get exactly what docker stats give use the following - from the code for docker stats command
+                            mem_used = stats["memory_stats"]["usage"] - stats["memory_stats"]["stats"]["inactive_file"]
+                            cpuused = stats['cpu_stats']['cpu_usage']['total_usage']
+                            cputotal = stats['cpu_stats']['system_cpu_usage']
+                            cores = stats['cpu_stats']['online_cpus']
+                            nettx = 0
+                            netrx = 0
+                            netstats = stats['networks'].items()
+                            if netstats :
+                                for network, ioinfo in stats['networks'].items():
+                                    #print(f"Network info for {network}")
+                                    netrx += ioinfo['rx_bytes']
+                                    nettx += ioinfo['tx_bytes']
+                            blkiorx = 0
+                            blkiotx = 0
+                            blkstats = stats['blkio_stats']['io_service_bytes_recursive']
+                            if blkstats:
+                                for blkioinfo in stats['blkio_stats']['io_service_bytes_recursive']:
+                                    if blkioinfo['op']=='read' : blkiorx = blkioinfo['value']
+                                    if blkioinfo['op']=='write': blkiotx = blkioinfo['value'] 
                         statDict = {
                             "Name":container.name,
-                            "memoryused":memoryused,
+                            "memoryused":mem_used,
                             "memorylimit":memorylimit,
                             "cpuused":cpuused,
                             "cputotal":cputotal,
-                            "cores":cores
+                            "cores": cores,
+                            "netrx" : netrx,
+                            "nettx" : nettx,
+                            "blkiorx" : blkiorx,
+                            "blkiotx" : blkiotx
                         }
                         self.docker_stats.put(statDict)
                         print(f"[readline_stats] >>> putting stats for {container.name} in queue: {statDict['Name']} {statDict['memoryused']}")
-                sleep(10)
-        except Exception as ex:
-            print(f"error reading stat data{ex}")
+            except Exception as ex:
+                print(f"error reading stat data{ex}")
+            sleep(10)
 
 test = DockerAPITest()
 test._start_readline_stats_thread()
