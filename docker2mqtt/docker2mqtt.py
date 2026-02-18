@@ -49,6 +49,7 @@ from .const import (
     MQTT_TOPIC_PREFIX_DEFAULT,
     STATS_RECORD_SECONDS_DEFAULT,
     STATS_REGISTRATION_ENTRIES,
+    STATUS_REGISTRATION_ENTRIES,
     WATCHED_EVENTS,
 )
 from .exceptions import (
@@ -66,6 +67,7 @@ from .type_definitions import (
     ContainerEventStatusType,
     ContainerHeathType,
     ContainerStats,
+    ContainerStatus,    
     ContainerStatsRef,
     Docker2MqttConfig,
 )
@@ -143,7 +145,9 @@ class Docker2Mqtt:
     docker_status: Queue[dict] = Queue(maxsize=MAX_QUEUE_SIZE)
     known_event_containers: dict[str, ContainerEvent] = {}
     known_stat_containers: dict[str, ContainerStatsRef] = {}
+    known_status_containers: dict[str, ContainerStatsRef] = {}
     last_stat_containers: dict[str, ContainerStats | dict[str, Any]] = {}
+    last_status_containers: dict[str, ContainerStatus | dict[str, Any]] = {}   
     pending_destroy_operations: dict[str, float] = {}
 
     mqtt: paho.mqtt.client.Client
@@ -190,6 +194,9 @@ class Docker2Mqtt:
         )
         self.stats_topic = (
             f"{cfg['mqtt_topic_prefix']}/{cfg['docker2mqtt_hostname']}/{{}}/stats"
+        )
+        self.cstatus_topic = (
+            f"{cfg['mqtt_topic_prefix']}/{cfg['docker2mqtt_hostname']}/{{}}/status"
         )
         self.events_topic = (
             f"{cfg['mqtt_topic_prefix']}/{cfg['docker2mqtt_hostname']}/{{}}/events"
@@ -784,6 +791,7 @@ class Docker2Mqtt:
                         "Name":container.name,
                         "image": imagetag,
                         "shortid":shortid,
+                        "status":status,
                         "health":health,
                         "created":created,
                         "startedat":startedat,
@@ -945,6 +953,42 @@ class Docker2Mqtt:
                 retain=True,
             )
 
+        # Status
+        for label, field, device_class, unit, icon in STATUS_REGISTRATION_ENTRIES:
+            registration_topic = self.homeassistant_discovery_sensor_topic.format(
+                INVALID_HA_TOPIC_CHARS.sub("_", f"{container}_{field}_status")
+            )
+            status_topic = self.status_topic.format(container)
+            registration_packet = ContainerEntry(
+                {
+                    "name": label,
+                    "unique_id": f"{self.cfg['mqtt_topic_prefix']}_{self.cfg['docker2mqtt_hostname']}_{registration_topic}",
+                    "availability_topic": f"{self.cfg['mqtt_topic_prefix']}/{self.cfg['docker2mqtt_hostname']}/status",
+                    "payload_available": "online",
+                    "payload_not_available": "offline",
+                    "state_topic": stats_topic,
+                    "value_template": f"{{{{ value_json.{field} if value_json is not undefined and value_json.{field} is not undefined else None }}}}",
+                    "unit_of_measurement": unit,
+                    "icon": icon,
+                    "payload_on": None,
+                    "payload_off": None,
+                    "json_attributes_topic": None,
+                    "device_class": device_class,
+                    "device": self._device_definition(container_entry),
+                    "qos": self.cfg["mqtt_qos"],
+                }
+            )
+            self._mqtt_send(
+                registration_topic,
+                json.dumps(clean_for_discovery(registration_packet)),
+                retain=True,
+            )
+            self._mqtt_send(
+                status_topic,
+                json.dumps({}),
+                retain=True,
+            )
+
     def _unregister_container(self, container: str) -> None:
         """Remove all discovery topics of container from all discovery platforms.
 
@@ -1005,6 +1049,22 @@ class Docker2Mqtt:
             "",
             retain=True,
         )
+
+        # Status
+        for _, field, _, _, _ in STATUS_REGISTRATION_ENTRIES:
+            self._mqtt_send(
+                self.homeassistant_discovery_sensor_topic.format(
+                    INVALID_HA_TOPIC_CHARS.sub("_", f"{container}_{field}_stats")
+                ),
+                "",
+                retain=True,
+            )
+        self._mqtt_send(
+            self.stats_topic.format(container),
+            "",
+            retain=True,
+        )
+
 
     def _match_container(self, container: str, to_check: str) -> bool:
         """Match a container to a value.
@@ -1213,7 +1273,81 @@ class Docker2Mqtt:
                     json.dumps(self.known_event_containers[container]),
                     retain=True,
                 )
+    def _handle_status_queue(self) -> None:
+        """Check if any status information is present in the queue and process it.
 
+        Raises
+        ------
+        Docker2MqttEventsException
+            If anything goes wrong in the processing of the events
+
+        """
+        status_dict= {}
+
+        docker_status_qsize = self.docker_status.qsize()
+        try:
+            if self.b_events:
+                status_dict = self.docker_status.get(block=False)
+            events_logger.debug("Events queue length: %s", docker_status_qsize)
+        except Empty:
+            # No data right now, just move along.
+            pass
+
+        if self.b_events and docker_status_qsize > 0:
+            if status_dict and len(status_dict) >0 : #and len(event_line) > 0:
+                try:
+                    status= status_dict
+
+                    container: str = status["Name"]
+                    if not self._filter_container(container):
+                        stats_logger.debug("Skip container: %s", container)
+                        return
+
+                    if events_logger.isEnabledFor(logging.DEBUG):
+                        events_logger.debug(
+                            "Have status info to process for Container name: %s", container
+                        )
+
+                    if container not in self.known_status_containers:
+                        self.known_status_containers[container] = ContainerStatsRef(
+                            {"key": "", "last": datetime.datetime(2020, 1, 1)}
+                        )
+                        self.last_status_containers[container] = {}
+
+
+                    container_status = ContainerStatus(
+                        {
+                            "name": container,
+                            "image": status['image'],
+                            "short_id": status['shortid'],
+                            "status": status['status'],
+                            "created": status['created'],
+                            "started_at": status['startedat'],
+                            "finished_at": status['finishedat'],
+                            "exitcode": status["exitcode"],
+                            "health": status["health"],
+                        }
+                    )
+                    if stats_logger.isEnabledFor(logging.DEBUG):
+                        stats_logger.debug(
+                            "Printing container stats: %s", container_status
+                        )
+                    self.last_status_containers[container] = container_status
+
+                except Exception as ex:
+
+                    events_logger.debug(ex)
+                    raise Docker2MqttStatsException(
+                        f"Error reading status"
+                    ) from ex
+
+                if events_logger.isEnabledFor(logging.DEBUG):
+                    events_logger.debug("Sending mqtt payload")
+                self._mqtt_send(
+                    self.cstatus_topic.format(container),
+                    json.dumps(self.last_status_containers[container]),
+                    retain=True,
+                )
     def _process_action(self, action: str, container: str, event: Any) -> None:
         """Process an action of an event for a container.
 

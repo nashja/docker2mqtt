@@ -69,6 +69,18 @@ STATS_REGISTRATION_ENTRIES = [
     ('Block Input Rate',        'blockinputrate',   'data_rate',    'MB/s', 'mdi:database-arrow-up-outline'),
     ('Block Output Rate',       'blockoutputrate',  'data_rate',    'MB/s', 'mdi:database-arrow-down-outline'),
 ]
+STATUS_REGISTRATION_ENTRIES = [
+    # label,field,device_class,unit,icon
+    ('Name',                    'name',             None,       '',     'mdi:chip'),
+    ('Image',                   'image',            None,       '',     'mdi:memory'),
+    ('ShortId',                 'shortid',          None,       '',     'mdi:download-network'),
+    ('Status',                  'status',           None,       '',     'mdi:upload-network'),
+    ('Health',                  'health',           None,       '',     'mdi:download-network-outline'),
+    ('Created',                 'created',          'timestamp', '',     'mdi:upload-network-outline'),
+    ('Started At',             'startedat',         'timestamp', '',     'mdi:database-arrow-up'),
+    ('Finished At',            'finishedat',        'timestamp', '',     'mdi:database-arrow-down'),
+    ('Exit Code',               'exitcode',         None,       '',     'mdi:database-arrow-up-outline'),
+]
 # fmt: on
 # fmt: off
 EVENTS_REGISTRATION_ENTRIES = [
