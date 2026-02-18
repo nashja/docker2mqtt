@@ -479,6 +479,8 @@ class Docker2Mqtt:
 
         self._handle_stats_queue()
 
+        self._handle_status_queue()
+
         try:
             if self.b_events and not self.docker_events_t.is_alive():
                 main_logger.warning("Restarting events thread")
@@ -958,7 +960,7 @@ class Docker2Mqtt:
             registration_topic = self.homeassistant_discovery_sensor_topic.format(
                 INVALID_HA_TOPIC_CHARS.sub("_", f"{container}_{field}_status")
             )
-            status_topic = self.status_topic.format(container)
+            status_topic = self.cstatus_topic.format(container)
             registration_packet = ContainerEntry(
                 {
                     "name": label,
@@ -966,7 +968,7 @@ class Docker2Mqtt:
                     "availability_topic": f"{self.cfg['mqtt_topic_prefix']}/{self.cfg['docker2mqtt_hostname']}/status",
                     "payload_available": "online",
                     "payload_not_available": "offline",
-                    "state_topic": stats_topic,
+                    "state_topic": status_topic,
                     "value_template": f"{{{{ value_json.{field} if value_json is not undefined and value_json.{field} is not undefined else None }}}}",
                     "unit_of_measurement": unit,
                     "icon": icon,
@@ -1314,7 +1316,42 @@ class Docker2Mqtt:
                         )
                         self.last_status_containers[container] = {}
 
+                    check_date = datetime.datetime.now() - datetime.timedelta(
+                        seconds=self.cfg["stats_record_seconds"]
+                    )
+                    container_date = self.known_status_containers[container]["last"]
+                    if stats_logger.isEnabledFor(logging.DEBUG):
+                        stats_logger.debug(
+                            "Compare dates %s %s", check_date, container_date
+                        )
+                    if container_date > check_date:
+                        if stats_logger.isEnabledFor(logging.DEBUG):
+                            stats_logger.debug(
+                                "Not processing record, too recent: %s ",
+                                container,
+                            )
+                        return
+                    status_line = json.dumps(status)
+                    stat_key = hashlib.md5(status_line.encode("utf-8")).hexdigest()
+                    existing_stat_key = self.known_status_containers[container]["key"]
+                    if stats_logger.isEnabledFor(logging.DEBUG):
+                        stats_logger.debug(
+                            "Compare hashes %s %s", stat_key, existing_stat_key
+                        )
+                    if stat_key == existing_stat_key:
+                        if stats_logger.isEnabledFor(logging.DEBUG):
+                            stats_logger.debug(
+                                "Not processing duplicate record: %s ",
+                                container,
+                            )
+                        return
 
+                    if stats_logger.isEnabledFor(logging.DEBUG):
+                        stats_logger.info("Processing %s stats", container)
+                    self.known_status_containers[container]["key"] = stat_key
+                    self.known_status_containers[container]["last"] = (
+                        datetime.datetime.now()
+                    )
                     container_status = ContainerStatus(
                         {
                             "name": container,
