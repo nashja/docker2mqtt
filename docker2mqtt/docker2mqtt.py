@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Listens to docker events and stats for containers and sends it to mqtt and supports discovery for home assistant."""
 
-import docker
 import argparse
 import datetime
 import hashlib
@@ -16,26 +15,25 @@ import re
 import signal
 import socket
 import subprocess
-from subprocess import PIPE, Popen
 import sys
 from threading import Event, Thread
 from time import sleep, time
 from typing import Any, cast
 import uuid
 
+import docker
 import paho.mqtt.client
+import paho.mqtt.enums
 
 from docker2mqtt.helpers import clean_for_discovery
 
 from . import __version__
 from .const import (
-    ANSI_ESCAPE,
     DESTROYED_CONTAINER_TTL_DEFAULT,
     DISCOVERY_DEFAULT,
     DOCKER_EVENTS_CMD,
     DOCKER_INSPECT_HEALTH_CMD,
     DOCKER_PS_CMD,
-    DOCKER_STATS_CMD,
     DOCKER_VERSION_CMD,
     EVENTS_REGISTRATION_ENTRIES,
     HOMEASSISTANT_PREFIX_DEFAULT,
@@ -67,10 +65,12 @@ from .type_definitions import (
     ContainerEventStatusType,
     ContainerHeathType,
     ContainerStats,
-    ContainerStatus,    
     ContainerStatsRef,
+    ContainerStatus,
     Docker2MqttConfig,
 )
+
+type Incomplete = Any  # stable
 
 MEM_RE = re.compile(
     r"(?P<used>.+?)(?P<used_symbol>[kKMGT]?i?B)\s+\/\s+(?P<limit>.+?)(?P<limit_symbol>[kKMGT]?i?B)"
@@ -139,6 +139,7 @@ class Docker2Mqtt:
 
     b_stats: bool = False
     b_events: bool = False
+    b_status: bool = False
 
     docker_events: Queue[dict] = Queue(maxsize=MAX_QUEUE_SIZE)
     docker_stats: Queue[dict] = Queue(maxsize=MAX_QUEUE_SIZE)
@@ -147,7 +148,7 @@ class Docker2Mqtt:
     known_stat_containers: dict[str, ContainerStatsRef] = {}
     known_status_containers: dict[str, ContainerStatsRef] = {}
     last_stat_containers: dict[str, ContainerStats | dict[str, Any]] = {}
-    last_status_containers: dict[str, ContainerStatus | dict[str, Any]] = {}   
+    last_status_containers: dict[str, ContainerStatus | dict[str, Any]] = {}
     pending_destroy_operations: dict[str, float] = {}
 
     mqtt: paho.mqtt.client.Client
@@ -206,6 +207,8 @@ class Docker2Mqtt:
             self.b_events = True
         if self.cfg["enable_stats"]:
             self.b_stats = True
+        if self.cfg["enable_status"]:
+            self.b_status = True
 
         try:
             self.docker_version = self._get_docker_version()
@@ -224,6 +227,7 @@ class Docker2Mqtt:
 
         main_logger.info("Events enabled: %d", self.b_events)
         main_logger.info("Stats enabled: %d", self.b_stats)
+        main_logger.info("Status enabled: %d", self.b_status)
 
         try:
             # Setup MQTT
@@ -277,9 +281,9 @@ class Docker2Mqtt:
             main_logger.exception("Error while trying to start stats thread.")
             main_logger.debug(ex)
             raise Docker2MqttConfigException from ex
-        
+
         try:
-            if self.b_events:
+            if self.b_status:
                 main_logger.info("Starting Status thread")
                 self._start_readline_status_thread()
                 started = True
@@ -498,11 +502,11 @@ class Docker2Mqtt:
             main_logger.exception("Error while trying to restart stats thread.")
             main_logger.debug(ex)
             raise Docker2MqttConfigException from ex
-        
+
         try:
-            if self.b_events and not self.docker_status_t.is_alive():
+            if self.b_status and not self.docker_status_t.is_alive():
                 main_logger.warning("Restarting status thread")
-                self._start_readline_stats_thread()
+                self._start_readline_status_thread()
         except Exception as ex:
             main_logger.exception("Error while trying to restart status thread.")
             main_logger.debug(ex)
@@ -704,8 +708,10 @@ class Docker2Mqtt:
 
         while True:
             try:
-                for container in self.client.containers.list(all=True): # could filter here ...
-                    if container.status != 'foo' :
+                for container in self.client.containers.list(
+                    all=True
+                ):  # could filter here ...
+                    if container.status != "foo":
                         cpuused = 0
                         cputotal = 0
                         memorylimit = 0
@@ -715,43 +721,54 @@ class Docker2Mqtt:
                         blkiorx = 0
                         blkiotx = 0
                         cores = 0
-                        stats = container.stats(stream=False)
-                        if len(stats['memory_stats']) == 0 :
+                        stats: dict[str, Incomplete] = container.stats(stream=False)  # pyright: ignore[reportAssignmentType]
+                        if len(stats["memory_stats"]) == 0:
                             mem_used = 0
                             memorylimit = 0
-                        else :
-                            memorylimit = stats['memory_stats']['limit']
+                        else:
+                            memorylimit = stats["memory_stats"]["limit"]
                             # to get exactly what docker stats give use the following - from the code for docker stats command
-                            mem_used = stats["memory_stats"]["usage"] - stats["memory_stats"]["stats"]["inactive_file"]
-                            cpuused = stats['cpu_stats']['cpu_usage']['total_usage']
-                            cputotal = stats['cpu_stats']['system_cpu_usage']
-                            cores = stats['cpu_stats']['online_cpus']
-                            netstats = stats['networks'].items()
-                            if netstats :
-                                for network, ioinfo in stats['networks'].items():
-                                    #print(f"Network info for {network}")
-                                    netrx += ioinfo['rx_bytes']
-                                    nettx += ioinfo['tx_bytes']
+                            mem_used = (
+                                stats["memory_stats"]["usage"]
+                                - stats["memory_stats"]["stats"]["inactive_file"]
+                            )
+                            cpuused = stats["cpu_stats"]["cpu_usage"]["total_usage"]
+                            cputotal = stats["cpu_stats"]["system_cpu_usage"]
+                            cores = stats["cpu_stats"]["online_cpus"]
+                            netstats = stats["networks"].items()
+                            if netstats:
+                                for network, ioinfo in stats["networks"].items():
+                                    # print(f"Network info for {network}")
+                                    netrx += ioinfo["rx_bytes"]
+                                    nettx += ioinfo["tx_bytes"]
 
-                            blkstats = stats['blkio_stats']['io_service_bytes_recursive']
+                            blkstats = stats["blkio_stats"][
+                                "io_service_bytes_recursive"
+                            ]
                             if blkstats:
-                                for blkioinfo in stats['blkio_stats']['io_service_bytes_recursive']:
-                                    if blkioinfo['op']=='read' : blkiorx = blkioinfo['value']
-                                    if blkioinfo['op']=='write': blkiotx = blkioinfo['value'] 
+                                for blkioinfo in stats["blkio_stats"][
+                                    "io_service_bytes_recursive"
+                                ]:
+                                    if blkioinfo["op"] == "read":
+                                        blkiorx = blkioinfo["value"]
+                                    if blkioinfo["op"] == "write":
+                                        blkiotx = blkioinfo["value"]
                         statDict = {
-                            "Name":container.name,
-                            "memoryused":mem_used,
-                            "memorylimit":memorylimit,
-                            "cpuused":cpuused,
-                            "cputotal":cputotal,
+                            "Name": container.name,
+                            "memoryused": mem_used,
+                            "memorylimit": memorylimit,
+                            "cpuused": cpuused,
+                            "cputotal": cputotal,
                             "cores": cores,
-                            "netrx" : netrx,
-                            "nettx" : nettx,
-                            "blkiorx" : blkiorx,
-                            "blkiotx" : blkiotx
+                            "netrx": netrx,
+                            "nettx": nettx,
+                            "blkiorx": blkiorx,
+                            "blkiotx": blkiotx,
                         }
                         self.docker_stats.put(statDict)
-                        print(f"[readline_stats] >>> putting stats for {container.name} in queue: {statDict['Name']} {statDict['memoryused']}")
+                        print(
+                            f"[readline_stats] >>> putting stats for {container.name} in queue: {statDict['Name']} {statDict['memoryused']}"
+                        )
             except Exception as ex:
                 print(f"error reading stat data {ex}")
             sleep(10)
@@ -770,40 +787,43 @@ class Docker2Mqtt:
             thread_logger, self.cfg["log_level"], self.cfg.get("log_dir", None)
         )
         while True:
-            try:
-                for container in self.client.containers.list(all=True):
+            for container in self.client.containers.list(all=True):
+                try:
                     shortid = container.short_id
                     health = container.health
                     status = container.status
                     image = container.image
-                    if len(image.tags)>0 :
-                        imagetag = image.tags[0]
-                    else :
-                        imagetag = ""
-                    created = container.attrs.get('Created',None)
-                    state = container.attrs.get('State',None)
+                    if image:
+                        if len(image.tags) > 0:
+                            imagetag = image.tags[0]
+                        else:
+                            imagetag = ""
+                    created = container.attrs.get("Created", None)
+                    state = container.attrs.get("State", None)
                     startedat = None
                     finishedat = None
                     exitcode = 0
-                    if state :
-                        startedat = state.get('StartedAt',None)
-                        finishedat = state.get('FinishedAt',None)
-                        exitcode = state.get('ExitCode',0)
+                    if state:
+                        startedat = state.get("StartedAt", None)
+                        finishedat = state.get("FinishedAt", None)
+                        exitcode = state.get("ExitCode", 0)
                     statusDict = {
-                        "Name":container.name,
+                        "Name": container.name,
                         "image": imagetag,
-                        "shortid":shortid,
-                        "status":status,
-                        "health":health,
-                        "created":created,
-                        "startedat":startedat,
+                        "shortid": shortid,
+                        "status": status,
+                        "health": health,
+                        "created": created,
+                        "startedat": startedat,
                         "finishedat": finishedat,
-                        "exitcode" : exitcode,
+                        "exitcode": exitcode,
                     }
                     self.docker_status.put(statusDict)
-                    print(f"[readline_status] >>> putting status for {container.name} in queue: {statusDict['Name']} {statusDict['created']}")
-            except Exception as ex:
-                print(f"error reading stat data {ex}")
+                    print(
+                        f"[readline_status] >>> putting status for {container.name} in queue: {statusDict['Name']} {statusDict['created']}"
+                    )
+                except Exception as ex:
+                    print(f"error reading status data  error is {ex}")
             sleep(10)
 
     def _device_definition(
@@ -1067,7 +1087,6 @@ class Docker2Mqtt:
             retain=True,
         )
 
-
     def _match_container(self, container: str, to_check: str) -> bool:
         """Match a container to a value.
 
@@ -1240,9 +1259,9 @@ class Docker2Mqtt:
             pass
 
         if self.b_events and docker_events_qsize > 0:
-            if event : #and len(event_line) > 0:
+            if event:  # and len(event_line) > 0:
                 try:
-                    #event = json.loads(event_line)
+                    # event = json.loads(event_line)
                     action = event.get("status", event.get("Action", "unknown"))
                     if action not in WATCHED_EVENTS:
                         events_logger.info("Not a watched event: %s", action)
@@ -1275,6 +1294,7 @@ class Docker2Mqtt:
                     json.dumps(self.known_event_containers[container]),
                     retain=True,
                 )
+
     def _handle_status_queue(self) -> None:
         """Check if any status information is present in the queue and process it.
 
@@ -1284,21 +1304,21 @@ class Docker2Mqtt:
             If anything goes wrong in the processing of the events
 
         """
-        status_dict= {}
+        status_dict = {}
 
         docker_status_qsize = self.docker_status.qsize()
         try:
-            if self.b_events:
+            if self.b_status:
                 status_dict = self.docker_status.get(block=False)
             events_logger.debug("Events queue length: %s", docker_status_qsize)
         except Empty:
             # No data right now, just move along.
             pass
 
-        if self.b_events and docker_status_qsize > 0:
-            if status_dict and len(status_dict) >0 : #and len(event_line) > 0:
+        if self.b_status and docker_status_qsize > 0:
+            if status_dict and len(status_dict) > 0:  # and len(event_line) > 0:
                 try:
-                    status= status_dict
+                    status = status_dict
 
                     container: str = status["Name"]
                     if not self._filter_container(container):
@@ -1307,7 +1327,8 @@ class Docker2Mqtt:
 
                     if events_logger.isEnabledFor(logging.DEBUG):
                         events_logger.debug(
-                            "Have status info to process for Container name: %s", container
+                            "Have status info to process for Container name: %s",
+                            container,
                         )
 
                     if container not in self.known_status_containers:
@@ -1355,12 +1376,12 @@ class Docker2Mqtt:
                     container_status = ContainerStatus(
                         {
                             "name": container,
-                            "image": status['image'],
-                            "short_id": status['shortid'],
-                            "status": status['status'],
-                            "created": status['created'],
-                            "started_at": status['startedat'],
-                            "finished_at": status['finishedat'],
+                            "image": status["image"],
+                            "short_id": status["shortid"],
+                            "status": status["status"],
+                            "created": status["created"],
+                            "started_at": status["startedat"],
+                            "finished_at": status["finishedat"],
                             "exitcode": status["exitcode"],
                             "health": status["health"],
                         }
@@ -1372,11 +1393,8 @@ class Docker2Mqtt:
                     self.last_status_containers[container] = container_status
 
                 except Exception as ex:
-
                     events_logger.debug(ex)
-                    raise Docker2MqttStatsException(
-                        f"Error reading status"
-                    ) from ex
+                    raise Docker2MqttStatsException("Error reading status") from ex
 
                 if events_logger.isEnabledFor(logging.DEBUG):
                     events_logger.debug("Sending mqtt payload")
@@ -1385,6 +1403,7 @@ class Docker2Mqtt:
                     json.dumps(self.last_status_containers[container]),
                     retain=True,
                 )
+
     def _process_action(self, action: str, container: str, event: Any) -> None:
         """Process an action of an event for a container.
 
@@ -1500,7 +1519,7 @@ class Docker2Mqtt:
             If anything goes wrong in the processing of the stats
 
         """
-        stat_dict= {}
+        stat_dict = {}
 
         docker_stats_qsize = self.docker_stats.qsize()
         try:
@@ -1520,12 +1539,12 @@ class Docker2Mqtt:
         if self.b_stats and docker_stats_qsize > 0:
             if stat_dict and len(stat_dict) > 0:
                 try:
-                    #stat_line = "".join(
+                    # stat_line = "".join(
                     #    [c for c in stat_line if ord(c) > 31 or ord(c) == 9]
-                    #)
-                    #stat_line = stat_line.lstrip("[2J[H")
+                    # )
+                    # stat_line = stat_line.lstrip("[2J[H")
                     # print(':'.join(hex(ord(x))[2:] for x in stat_line))
-                    stat = stat_dict #json.loads(stat_line)
+                    stat = stat_dict  # json.loads(stat_line)
                     # print("loaded json")
                     # print(stat)
                     container: str = stat["Name"]
@@ -1600,21 +1619,26 @@ class Docker2Mqtt:
                     delta_cpu_used = 0
                     delta_total_cpu = 0
                     cpu_percent = 0
-                    if len(last_stat) >0 :
-                        delta_cpu_used = stat["cpuused"]-last_stat['cpuused'] 
-                        delta_total_cpu = stat["cputotal"]-last_stat['systemcpu']
-                        cores = stat['cores']
+                    if len(last_stat) > 0:
+                        delta_cpu_used = stat["cpuused"] - last_stat["cpuused"]
+                        delta_total_cpu = stat["cputotal"] - last_stat["systemcpu"]
+                        cores = stat["cores"]
                         # this now works - needed to add the cores ...
-                        cpu_percent = float(delta_cpu_used*cores*100.)/float(delta_total_cpu) if delta_total_cpu > 0 else 0
+                        cpu_percent = (
+                            float(delta_cpu_used * cores * 100.0)
+                            / float(delta_total_cpu)
+                            if delta_total_cpu > 0
+                            else 0
+                        )
 
-                    mbused = float(stat['memoryused'])/float(1024.*1024.)
-                    memString = f"{mbused:.3f}MiB/{stat['memorylimit']/float(1024.*1024.*1024.):.3f}GiB"
+                    mbused = float(stat["memoryused"]) / float(1024.0 * 1024.0)
+                    memString = f"{mbused:.3f}MiB/{stat['memorylimit'] / float(1024.0 * 1024.0 * 1024.0):.3f}GiB"
 
                     netinputrate = (
                         max(
                             0,
                             (
-                                stat['netrx']
+                                stat["netrx"]
                                 - self.last_stat_containers[container].get(
                                     "netinput", 0
                                 )
@@ -1626,7 +1650,7 @@ class Docker2Mqtt:
                         max(
                             0,
                             (
-                                stat['nettx']
+                                stat["nettx"]
                                 - self.last_stat_containers[container].get(
                                     "netoutput", 0
                                 )
@@ -1634,14 +1658,15 @@ class Docker2Mqtt:
                         )
                         / delta_seconds
                     )
-                    netioString = f"{stat['netrx']/float(1024.):.3f}kB/{stat['nettx']/float(1024.):.3f}kB"
-
+                    netioString = (
+                        f"{stat['netrx'] / 1024.0:.3f}kB/{stat['nettx'] / 1024.0:.3f}kB"
+                    )
 
                     blockinputrate = (
                         max(
                             0,
                             (
-                               stat['blkiorx']
+                                stat["blkiorx"]
                                 - self.last_stat_containers[container].get(
                                     "blockinput", 0
                                 )
@@ -1653,7 +1678,7 @@ class Docker2Mqtt:
                         max(
                             0,
                             (
-                                stat['blkiotx']
+                                stat["blkiotx"]
                                 - self.last_stat_containers[container].get(
                                     "blockoutput", 0
                                 )
@@ -1667,20 +1692,20 @@ class Docker2Mqtt:
                             "name": container,
                             "host": self.cfg["docker2mqtt_hostname"],
                             "cpu": cpu_percent,
-                            "cpuused": stat['cpuused'],
-                            "systemcpu": stat['cputotal'],
-                            "cores": stat['cores'],
+                            "cpuused": stat["cpuused"],
+                            "systemcpu": stat["cputotal"],
+                            "cores": stat["cores"],
                             "memory": memString,
                             "memoryused": stat["memoryused"],
                             "memorylimit": stat["memorylimit"],
                             "netio": netioString,
-                            "netinput": stat['netrx'],
+                            "netinput": stat["netrx"],
                             "netinputrate": netinputrate,
-                            "netoutput": stat['nettx'],
+                            "netoutput": stat["nettx"],
                             "netoutputrate": netoutputrate,
-                            "blockinput": stat['blkiorx'],
+                            "blockinput": stat["blkiorx"],
                             "blockinputrate": blockinputrate,
-                            "blockoutput": stat['blkiotx'],
+                            "blockoutput": stat["blkiotx"],
                             "blockoutputrate": blockoutputrate,
                         }
                     )
@@ -1892,6 +1917,13 @@ def main() -> None:
         help="Publish Stats",
         action="store_true",
     )
+
+    parser.add_argument(
+        "--status",
+        help="Publish Status",
+        action="store_true",
+    )
+
     parser.add_argument(
         "--interval",
         help=f"The number of seconds to record state and make an average (default: {STATS_RECORD_SECONDS_DEFAULT})",
@@ -1939,6 +1971,7 @@ def main() -> None:
             "container_blacklist": args.blacklist or [],
             "enable_events": args.events,
             "enable_stats": args.stats,
+            "enable_status": args.status,
             "stats_record_seconds": args.interval,
         }
     )

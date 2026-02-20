@@ -58,6 +58,9 @@ class Docker2MqttConfig(TypedDict):
         Flag to enable event monitoring
     enable_stats
         Flag to enable stat monitoring
+    enable_status
+        Flag to enable status monitoring
+
     stats_record_seconds
         Interval every how many seconds the stats are published via MQTT
 
@@ -82,6 +85,7 @@ class Docker2MqttConfig(TypedDict):
     container_blacklist: list[str]
     enable_events: bool
     enable_stats: bool
+    enable_status: bool
     stats_record_seconds: int
 
 
@@ -109,6 +113,7 @@ class ContainerEvent(TypedDict):
     state: ContainerEventStateType
     health: NotRequired[ContainerHeathType]
 
+
 class ContainerStatus(TypedDict):
     """A container event object to send to an mqtt topic.
 
@@ -129,14 +134,13 @@ class ContainerStatus(TypedDict):
 
     name: str
     image: str
-    short_id : str
-    status : str
-    created : datetime
-    started_at : datetime
-    finished_at : datetime
-    exitcode : int
-    health : str
-
+    short_id: str
+    status: str
+    created: datetime
+    started_at: datetime
+    finished_at: datetime
+    exitcode: int
+    health: str
 
 
 class ContainerStatsRef(TypedDict):
@@ -209,8 +213,9 @@ class ContainerStats(TypedDict):
     blockoutputrate: float
     cpu: float
     cpuused: float
-    systemcpu : float
-    cores : int
+    systemcpu: float
+    cores: int
+
 
 class ContainerDeviceEntry(TypedDict):
     """A container device entry object for discovery in home assistant.

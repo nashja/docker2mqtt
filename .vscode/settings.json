@@ -40,5 +40,9 @@
     "-v",
     "--color=yes"
   ],
-  "python.analysis.typeCheckingMode": "basic"
+  "python.analysis.typeCheckingMode": "basic",
+  "python-envs.defaultEnvManager": "ms-python.python:conda",
+  "python-envs.defaultPackageManager": "ms-python.python:conda",
+  "python.terminal.useEnvFile": true,
+  "python-envs.pythonProjects": []
 }

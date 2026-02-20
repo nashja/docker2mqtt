@@ -19,6 +19,7 @@ from .const import (
     MQTT_TOPIC_PREFIX_DEFAULT,
     STATS_DEFAULT,
     STATS_RECORD_SECONDS_DEFAULT,
+    STATUS_DEFAULT,
 )
 from .docker2mqtt import Docker2Mqtt
 from .type_definitions import Docker2MqttConfig
@@ -28,6 +29,20 @@ logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 # Loggers
 main_logger = logging.getLogger("main")
+
+
+def str_to_bool(s):
+    """str_to_bool function.
+
+    since bool("False") just returns true
+    """
+    s = s.lower()
+    if s in {"true", "True", "TRUE"}:
+        return True
+    elif s in {"false", "False", "FALSE"}:
+        return False
+    else:
+        raise ValueError(f"'{s}' is not a valid truth value")
 
 
 if __name__ == "__main__":
@@ -67,8 +82,9 @@ if __name__ == "__main__":
             "mqtt_qos": int(environ.get("MQTT_QOS", MQTT_QOS_DEFAULT)),
             "container_whitelist": whitelist.split(",") if len(whitelist) > 0 else [],
             "container_blacklist": blacklist.split(",") if len(blacklist) > 0 else [],
-            "enable_events": bool(environ.get("EVENTS", EVENTS_DEFAULT)),
-            "enable_stats": bool(environ.get("STATS", STATS_DEFAULT)),
+            "enable_events": str_to_bool(environ.get("EVENTS", EVENTS_DEFAULT)),
+            "enable_stats": str_to_bool(environ.get("STATS", STATS_DEFAULT)),
+            "enable_status": str_to_bool(environ.get("STATUS", STATUS_DEFAULT)),
             "stats_record_seconds": int(
                 environ.get("STATS_RECORD_SECONDS", STATS_RECORD_SECONDS_DEFAULT)
             ),

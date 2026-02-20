@@ -20,6 +20,7 @@ CONTAINER_WHITELIST: list[str] = []
 CONTAINER_BLACKLIST: list[str] = []
 EVENTS_DEFAULT = False
 STATS_DEFAULT = False
+STATUS_DEFAULT = False
 STATS_RECORD_SECONDS_DEFAULT = 30  # s
 
 # Const
@@ -110,6 +111,7 @@ DEFAULT_CONFIG = Docker2MqttConfig(
         "container_blacklist": CONTAINER_BLACKLIST,
         "enable_events": EVENTS_DEFAULT,
         "enable_stats": STATS_DEFAULT,
+        "enable_status": STATUS_DEFAULT,
         "stats_record_seconds": STATS_RECORD_SECONDS_DEFAULT,
     }
 )
