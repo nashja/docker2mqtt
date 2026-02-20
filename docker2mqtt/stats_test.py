@@ -348,7 +348,7 @@ class DockerAPITest:
                         print(f"[readline_stats] >>> putting stats for {container.name} in queue: {statDict['Name']} {statDict['memoryused']}")
             except Exception as ex:
                 print(f"error reading stat data{ex}")
-            sleep(10)
+            sleep(self.cfg["stats_record_seconds"])
 
 test = DockerAPITest()
 test._start_readline_stats_thread()
