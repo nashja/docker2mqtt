@@ -11,7 +11,7 @@ ContainerEventStatusType = Literal[
 ]
 """Container event docker status"""
 
-ContainerHeathType = Literal["starting", "healthy", "unhealthy"]
+ContainerHealthType = Literal["starting", "healthy", "unhealthy","unknown"]
 """Container event docker status"""
 
 
@@ -111,7 +111,7 @@ class ContainerEvent(TypedDict):
     image: str
     status: ContainerEventStatusType
     state: ContainerEventStateType
-    health: NotRequired[ContainerHeathType]
+    health: NotRequired[ContainerHealthType]
 
 
 class ContainerStatus(TypedDict):

@@ -64,7 +64,7 @@ from .type_definitions import (
     ContainerEvent,
     ContainerEventStateType,
     ContainerEventStatusType,
-    ContainerHeathType,
+    ContainerHealthType,
     ContainerStats,
     ContainerStatsRef,
     ContainerStatus,
@@ -391,7 +391,8 @@ class Docker2Mqtt:
                         )
                         #health = self._get_container_health(container_status["Names"])
                         #if health is not None:
-                        container_event["health"] = container.health
+                        # this must be a valid health as it comes from the docker api (includes unknown)
+                        container_event["health"] = cast(ContainerHealthType, container.health)
 
                         self._register_container(container_event)
 
@@ -604,7 +605,10 @@ class Docker2Mqtt:
         except FileNotFoundError:
             return "Docker is not installed or not found in PATH."
 
-    def _get_container_health(self, container: str) -> ContainerHeathType | None:
+    def _get_container_health(self, container: str) -> ContainerHealthType | None:
+
+        containers = self.client.containers
+
         result = subprocess.run(
             [
                 *DOCKER_INSPECT_HEALTH_CMD,
@@ -615,7 +619,7 @@ class Docker2Mqtt:
             check=False,
         )
         health = result.stdout.strip()
-        return cast(ContainerHeathType, health) if health else None
+        return cast(ContainerHealthType, health) if health else None
 
     def _mqtt_send(self, topic: str, payload: str, retain: bool = False) -> None:
         """Send a mqtt payload to for a topic.
