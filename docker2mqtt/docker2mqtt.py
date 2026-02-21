@@ -210,16 +210,17 @@ class Docker2Mqtt:
             self.b_stats = True
         if self.cfg["enable_status"]:
             self.b_status = True
-
+        try:
+            self.client = docker.from_env()
+        except Docker2MqttConfigException as e:
+            raise Docker2MqttConfigException("Could not get open docker api") from e
+        
         try:
             self.docker_version = self._get_docker_version()
         except FileNotFoundError as e:
             raise Docker2MqttConfigException("Could not get docker version") from e
 
-        try:
-            self.client = docker.from_env()
-        except Docker2MqttConfigException as e:
-            raise Docker2MqttConfigException("Could not get open docker api") from e
+
 
         if not self.do_not_exit:
             main_logger.info("Register signal handlers for SIGINT and SIGTERM")
@@ -579,21 +580,27 @@ class Docker2Mqtt:
             If docker socket is not accessible.
 
         """
+
+        #TODO self.client.version() - gives lots of detail 
         try:
+            docker_version = self.client.version()
+            version = docker_version["Version"]
+            return (f"Docker version {version}")
             # Run the `docker --version` command
-            result = subprocess.run(
-                DOCKER_VERSION_CMD,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
+
+            #result = subprocess.run(
+             #   DOCKER_VERSION_CMD,
+             #   capture_output=True,
+             #   text=True,
+             #   check=False,
+            #)
 
             # Check if the command was successful
-            if result.returncode == 0:
-                # Extract the version information from the output
-                return result.stdout.strip()
-            else:
-                raise Docker2MqttException(f"Error: {result.stderr.strip()}")
+            #if result.returncode == 0:
+            #    # Extract the version information from the output
+            #    return result.stdout.strip()
+            #else:
+              #  raise Docker2MqttException(f"Error: {result.stderr.strip()}")
         except FileNotFoundError:
             return "Docker is not installed or not found in PATH."
 

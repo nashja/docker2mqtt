@@ -292,7 +292,6 @@ class DockerAPITest:
                     print(f"error {ex}")
 
 
-
     def _start_readline_stats_thread(self) -> None:
         """Start the stats thread."""
         self.docker_stats_t = Thread(
