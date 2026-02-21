@@ -26,6 +26,7 @@ import paho.mqtt.client
 import paho.mqtt.enums
 
 from docker2mqtt.helpers import clean_for_discovery
+from docker.models.containers import Container, ContainerCollection
 
 from . import __version__
 from .const import (
@@ -355,40 +356,43 @@ class Docker2Mqtt:
             self._mqtt_send(self.version_topic, self.version, retain=True)
 
             # Register containers with HA
-            #TODO move to docker API
-            docker_ps = subprocess.run(
-                DOCKER_PS_CMD, capture_output=True, text=True, check=False
-            )
-            for line in docker_ps.stdout.splitlines():
-                container_status = json.loads(line)
+            # moved to docker API
+            #docker_ps = subprocess.run(
+            #    DOCKER_PS_CMD, capture_output=True, text=True, check=False
+            #)
+            for c in self.client.containers.list(all=True):
+            #for line in docker_ps.stdout.splitlines():
+            #    container_status = json.loads(line)
+                container : Container = c
+                if container.name:
+                    if self._filter_container(container.name):
+                        status_str: ContainerEventStatusType
+                        state_str: ContainerEventStateType
 
-                if self._filter_container(container_status["Names"]):
-                    status_str: ContainerEventStatusType
-                    state_str: ContainerEventStateType
+                        if container.status == 'paused':
+                            status_str = "paused"
+                            state_str = "off"
+                        elif container.status == 'running':
+                            status_str = "running"
+                            state_str = "on"
+                        else:
+                            status_str = "stopped"
+                            state_str = "off"
 
-                    if "Paused" in container_status["Status"]:
-                        status_str = "paused"
-                        state_str = "off"
-                    elif "Up" in container_status["Status"]:
-                        status_str = "running"
-                        state_str = "on"
-                    else:
-                        status_str = "stopped"
-                        state_str = "off"
+                        #if self.b_events:
+                        container_event = ContainerEvent(
+                            {
+                                "name": container.name,
+                                "image":  self._get_container_image_str(container),
+                                "status": status_str,
+                                "state": state_str,
+                            }
+                        )
+                        #health = self._get_container_health(container_status["Names"])
+                        #if health is not None:
+                        container_event["health"] = container.health
 
-                    #if self.b_events:
-                    container = ContainerEvent(
-                        {
-                            "name": container_status["Names"],
-                            "image": container_status["Image"],
-                            "status": status_str,
-                            "state": state_str,
-                        }
-                    )
-                    health = self._get_container_health(container_status["Names"])
-                    if health is not None:
-                        container["health"] = health
-                    self._register_container(container)
+                        self._register_container(container_event)
 
             self.first_connection_event.set()
         else:
@@ -787,18 +791,14 @@ class Docker2Mqtt:
         configure_logger(
             thread_logger, self.cfg["log_level"], self.cfg.get("log_dir", None)
         )
+        containers:list[Container] = self.client.containers.list(all=True)
         while True:
-            for container in self.client.containers.list(all=True):
+            for container in containers:
                 try:
                     shortid = container.short_id
                     health = container.health
                     status = container.status
-                    image = container.image
-                    if image:
-                        if len(image.tags) > 0:
-                            imagetag = image.tags[0]
-                        else:
-                            imagetag = ""
+                    imagetag = self._get_container_image_str(container)
                     created = container.attrs.get("Created", None)
                     state = container.attrs.get("State", None)
                     startedat = None
@@ -1138,6 +1138,18 @@ class Docker2Mqtt:
             if self._match_container(container, to_check):
                 return False
         return True
+
+    def _get_container_image_str(
+            self, container: Container
+    ) -> str:
+        
+        image = container.image
+        if image:
+            if len(image.tags) > 0:
+                imagetag = image.tags[0]
+            else:
+                imagetag = ""
+        return imagetag
 
     def _stat_to_value(
         self, stat: str, container: str, matches: re.Match[str] | None
