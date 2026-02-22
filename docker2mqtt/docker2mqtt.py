@@ -387,6 +387,7 @@ class Docker2Mqtt:
                                 "image":  self._get_container_image_str(container),
                                 "status": status_str,
                                 "state": state_str,
+                                "health": "unknown"
                             }
                         )
                         #health = self._get_container_health(container_status["Names"])
@@ -724,9 +725,10 @@ class Docker2Mqtt:
 
         while True:
             try:
-                for container in self.client.containers.list(
+                for c in self.client.containers.list(
                     all=True
                 ):  # could filter here ...
+                    container : Container = c
                     if container.status != "foo":
                         cpuused = 0
                         cputotal = 0
@@ -751,12 +753,14 @@ class Docker2Mqtt:
                             cpuused = stats["cpu_stats"]["cpu_usage"]["total_usage"]
                             cputotal = stats["cpu_stats"]["system_cpu_usage"]
                             cores = stats["cpu_stats"]["online_cpus"]
-                            netstats = stats["networks"].items()
+                            netstats = stats.get("networks", None)
+                            #print(f" netstats are {netstats}")
                             if netstats:
-                                for network, ioinfo in stats["networks"].items():
-                                    # print(f"Network info for {network}")
-                                    netrx += ioinfo["rx_bytes"]
-                                    nettx += ioinfo["tx_bytes"]
+                                for netname, netinfo in netstats.items():
+                                    #print(f"Network info for {netname}")
+                                    if netinfo:
+                                        netrx += netinfo["rx_bytes"]
+                                        nettx += netinfo["tx_bytes"]
 
                             blkstats = stats["blkio_stats"][
                                 "io_service_bytes_recursive"
@@ -1459,6 +1463,7 @@ class Docker2Mqtt:
                         "image": event.get("image", event.get("from", "unknown")),
                         "status": "created",
                         "state": "off",
+                        "health": "unknown"
                     }
                 )
                 health = self._get_container_health(container)
@@ -1501,6 +1506,7 @@ class Docker2Mqtt:
                             "image": self.known_event_containers[old_name]["image"],
                             "status": self.known_event_containers[old_name]["status"],
                             "state": self.known_event_containers[old_name]["state"],
+                            "health": "unknown"
                         }
                     )
                     health = self.known_event_containers[old_name].get("health")

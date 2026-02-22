@@ -2,8 +2,6 @@ services:
   docker2mqtt:
     build:
       context: .
-      platforms:
-        - "linux/arm64"
     container_name: docker2mqtt
     env_file:
       - .env
