@@ -202,6 +202,7 @@ class ContainerStats(TypedDict):
     memory: str
     memoryused: float
     memorylimit: float
+    memorypct: float
     netio: str
     netinput: float
     netinputrate: float
