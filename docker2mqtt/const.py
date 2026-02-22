@@ -60,15 +60,16 @@ ANSI_ESCAPE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 STATS_REGISTRATION_ENTRIES = [
     # label,field,device_class,unit,icon
     ('CPU',                     'cpu',              None,           '%',    'mdi:chip'),
-    ('Memory',                  'memoryused',       'data_size',    'MB',   'mdi:memory'),
-    ('Network Input',           'netinput',         'data_size',    'MB',   'mdi:download-network'),
-    ('Network Output',          'netoutput',        'data_size',    'MB',   'mdi:upload-network'),
-    ('Network Input Rate',      'netinputrate',     'data_rate',    'MB/s', 'mdi:download-network-outline'),
-    ('Network Output Rate',     'netoutputrate',    'data_rate',    'MB/s', 'mdi:upload-network-outline'),
-    ('Block Input',             'blockinput',       'data_size',    'MB',   'mdi:database-arrow-up'),
-    ('Block Output',            'blockoutput',      'data_size',    'MB',   'mdi:database-arrow-down'),
-    ('Block Input Rate',        'blockinputrate',   'data_rate',    'MB/s', 'mdi:database-arrow-up-outline'),
-    ('Block Output Rate',       'blockoutputrate',  'data_rate',    'MB/s', 'mdi:database-arrow-down-outline'),
+    ('Memory Used',             'memoryused',       'data_size',    'B',   'mdi:memory'),
+    ('Memory Pct',              'memorypct',         None,           '%',   'mdi:memory'),
+    ('Network Input',           'netinput',         'data_size',    'B',   'mdi:download-network'),
+    ('Network Output',          'netoutput',        'data_size',    'B',   'mdi:upload-network'),
+    ('Network Input Rate',      'netinputrate',     'data_rate',    'B/s', 'mdi:download-network-outline'),
+    ('Network Output Rate',     'netoutputrate',    'data_rate',    'B/s', 'mdi:upload-network-outline'),
+    ('Block Input',             'blockinput',       'data_size',    'B',   'mdi:database-arrow-up'),
+    ('Block Output',            'blockoutput',      'data_size',    'B',   'mdi:database-arrow-down'),
+    ('Block Input Rate',        'blockinputrate',   'data_rate',    'B/s', 'mdi:database-arrow-up-outline'),
+    ('Block Output Rate',       'blockoutputrate',  'data_rate',    'B/s', 'mdi:database-arrow-down-outline'),
 ]
 STATUS_REGISTRATION_ENTRIES = [
     # label,field,device_class,unit,icon
@@ -78,9 +79,9 @@ STATUS_REGISTRATION_ENTRIES = [
     ('Status',                  'status',           None,       '',     'mdi:upload-network'),
     ('Health',                  'health',           None,       '',     'mdi:download-network-outline'),
     ('Created',                 'created',          'timestamp', '',     'mdi:upload-network-outline'),
-    ('Started At',             'startedat',         'timestamp', '',     'mdi:database-arrow-up'),
-    ('Finished At',            'finishedat',        'timestamp', '',     'mdi:database-arrow-down'),
-    ('Exit Code',               'exitcode',         None,       '',     'mdi:database-arrow-up-outline'),
+    ('Started At',              'startedat',        'timestamp', '',     'mdi:database-arrow-up'),
+    ('Finished At',             'finishedat',       'timestamp', '',     'mdi:database-arrow-down'),
+    ('Exit Code',               'exitcode',         None,        '',     'mdi:database-arrow-up-outline'),
 ]
 # fmt: on
 # fmt: off

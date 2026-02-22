@@ -782,9 +782,9 @@ class Docker2Mqtt:
                             "blkiotx": blkiotx,
                         }
                         self.docker_stats.put(statDict)
-                        print(
-                            f"[readline_stats] >>> putting stats for {container.name} in queue: {statDict['Name']} {statDict['memoryused']}"
-                        )
+                        #print(
+                        #    f"[readline_stats] >>> putting stats for {container.name} in queue: {statDict['Name']} {statDict['memoryused']}"
+                        #)
             except Exception as ex:
                 print(f"error reading stat data {ex}")
             sleep(self.cfg["stats_record_seconds"])
@@ -831,9 +831,9 @@ class Docker2Mqtt:
                         "exitcode": exitcode,
                     }
                     self.docker_status.put(statusDict)
-                    print(
-                        f"[readline_status] >>> putting status for {container.name} in queue: {statusDict['Name']} {statusDict['created']}"
-                    )
+                    #print(
+                    #    f"[readline_status] >>> putting status for {container.name} in queue: {statusDict['Name']} {statusDict['created']}"
+                    #)
                 except Exception as ex:
                     print(f"error reading status data  error is {ex}")
             sleep(self.cfg["stats_record_seconds"])
@@ -1402,11 +1402,11 @@ class Docker2Mqtt:
                         {
                             "name": container,
                             "image": status["image"],
-                            "short_id": status["shortid"],
+                            "shortid": status["shortid"],
                             "status": status["status"],
                             "created": status["created"],
-                            "started_at": status["startedat"],
-                            "finished_at": status["finishedat"],
+                            "startedat": status["startedat"],
+                            "finishedat": status["finishedat"],
                             "exitcode": status["exitcode"],
                             "health": status["health"],
                         }
@@ -1658,6 +1658,7 @@ class Docker2Mqtt:
 
                     mbused = float(stat["memoryused"]) / float(1024.0 * 1024.0)
                     memString = f"{mbused:.3f}MiB/{stat['memorylimit'] / float(1024.0 * 1024.0 * 1024.0):.3f}GiB"
+                    mem_pct = stat["memoryused"] / stat["memorylimit"] if stat["memorylimit"] > 0 else 0.
 
                     netinputrate = (
                         max(
@@ -1723,6 +1724,7 @@ class Docker2Mqtt:
                             "memory": memString,
                             "memoryused": stat["memoryused"],
                             "memorylimit": stat["memorylimit"],
+                            "memorypct": mem_pct,
                             "netio": netioString,
                             "netinput": stat["netrx"],
                             "netinputrate": netinputrate,

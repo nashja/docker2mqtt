@@ -134,11 +134,11 @@ class ContainerStatus(TypedDict):
 
     name: str
     image: str
-    short_id: str
+    shortid: str
     status: str
     created: datetime
-    started_at: datetime
-    finished_at: datetime
+    startedat: datetime
+    finishedat: datetime
     exitcode: int
     health: str
 
