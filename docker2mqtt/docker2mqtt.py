@@ -1298,11 +1298,10 @@ class Docker2Mqtt:
 
                     self._process_action(action, container, event)
                 except Exception as ex:
-                    events_logger.exception("Error parsing line: %s", event_line)
-                    events_logger.exception("Error of parsed line")
+                    events_logger.exception("Error processing event: %s", event)
                     events_logger.debug(ex)
                     raise Docker2MqttEventsException(
-                        f"Error parsing line: {event_line}"
+                        f"Error processing event: {event}"
                     ) from ex
 
                 if events_logger.isEnabledFor(logging.DEBUG):
@@ -1386,7 +1385,7 @@ class Docker2Mqtt:
                         return
 
                     if status_logger.isEnabledFor(logging.DEBUG):
-                        status_logger.info("Processing %s stats", container)
+                        status_logger.info("Processing %s status", container)
                     self.known_status_containers[container]["key"] = stat_key
                     self.known_status_containers[container]["last"] = (
                         datetime.datetime.now()
