@@ -95,6 +95,7 @@ EVENTS_REGISTRATION_ENTRIES = [
 DEFAULT_CONFIG = Docker2MqttConfig(
     {
         "log_level": LOG_LEVEL_DEFAULT,
+        "log_dir": "",
         "destroyed_container_ttl": DESTROYED_CONTAINER_TTL_DEFAULT,
         "discovery": DISCOVERY_DEFAULT,
         "homeassistant_prefix": HOMEASSISTANT_PREFIX_DEFAULT,

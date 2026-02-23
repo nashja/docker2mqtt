@@ -21,7 +21,7 @@ from .const import (
     STATS_RECORD_SECONDS_DEFAULT,
     STATUS_DEFAULT,
 )
-from .docker2mqtt import Docker2Mqtt
+from .docker2mqtt import Docker2Mqtt, configure_logger
 from .type_definitions import Docker2MqttConfig
 
 # Configure logging
@@ -29,6 +29,10 @@ logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 # Loggers
 main_logger = logging.getLogger("main")
+events_logger = logging.getLogger("events")
+stats_logger = logging.getLogger("stats")
+status_logger = logging.getLogger("status")
+mqtt_logger = logging.getLogger("mqtt")
 
 
 def str_to_bool(s):
@@ -90,7 +94,13 @@ if __name__ == "__main__":
             ),
         }
     )
-
+    verbosity = cfg["log_level"]
+    logdir = cfg.get("log_dir", None)
+    configure_logger(main_logger, verbosity, logdir)
+    configure_logger(events_logger, verbosity, logdir)
+    configure_logger(stats_logger, verbosity, logdir)
+    configure_logger(status_logger, verbosity, logdir)
+    configure_logger(mqtt_logger, verbosity, logdir)
     try:
         docker2mqtt = Docker2Mqtt(cfg)
         docker2mqtt.loop_busy()

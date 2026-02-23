@@ -22,20 +22,17 @@ from typing import Any, cast
 import uuid
 
 import docker
+from docker.models.containers import Container
 import paho.mqtt.client
 import paho.mqtt.enums
 
 from docker2mqtt.helpers import clean_for_discovery
-from docker.models.containers import Container, ContainerCollection
 
 from . import __version__
 from .const import (
     DESTROYED_CONTAINER_TTL_DEFAULT,
     DISCOVERY_DEFAULT,
-    DOCKER_EVENTS_CMD,
     DOCKER_INSPECT_HEALTH_CMD,
-    DOCKER_PS_CMD,
-    DOCKER_VERSION_CMD,
     EVENTS_REGISTRATION_ENTRIES,
     HOMEASSISTANT_PREFIX_DEFAULT,
     HOMEASSISTANT_SINGLE_DEVICE_DEFAULT,
@@ -55,7 +52,6 @@ from .exceptions import (
     Docker2MqttConfigException,
     Docker2MqttConnectionException,
     Docker2MqttEventsException,
-    Docker2MqttException,
     Docker2MqttStatsException,
 )
 from .type_definitions import (
@@ -81,6 +77,7 @@ MEM_RE = re.compile(
 main_logger = logging.getLogger("main")
 events_logger = logging.getLogger("events")
 stats_logger = logging.getLogger("stats")
+status_logger = logging.getLogger("status")
 mqtt_logger = logging.getLogger("mqtt")
 
 
@@ -214,13 +211,10 @@ class Docker2Mqtt:
             self.client = docker.from_env()
         except Docker2MqttConfigException as e:
             raise Docker2MqttConfigException("Could not get open docker api") from e
-        
         try:
             self.docker_version = self._get_docker_version()
         except FileNotFoundError as e:
             raise Docker2MqttConfigException("Could not get docker version") from e
-
-
 
         if not self.do_not_exit:
             main_logger.info("Register signal handlers for SIGINT and SIGTERM")
@@ -358,42 +352,44 @@ class Docker2Mqtt:
 
             # Register containers with HA
             # moved to docker API
-            #docker_ps = subprocess.run(
+            # docker_ps = subprocess.run(
             #    DOCKER_PS_CMD, capture_output=True, text=True, check=False
-            #)
+            # )
             for c in self.client.containers.list(all=True):
-            #for line in docker_ps.stdout.splitlines():
-            #    container_status = json.loads(line)
-                container : Container = c
+                # for line in docker_ps.stdout.splitlines():
+                #    container_status = json.loads(line)
+                container: Container = c
                 if container.name:
                     if self._filter_container(container.name):
                         status_str: ContainerEventStatusType
                         state_str: ContainerEventStateType
 
-                        if container.status == 'paused':
+                        if container.status == "paused":
                             status_str = "paused"
                             state_str = "off"
-                        elif container.status == 'running':
+                        elif container.status == "running":
                             status_str = "running"
                             state_str = "on"
                         else:
                             status_str = "stopped"
                             state_str = "off"
 
-                        #if self.b_events:
+                        # if self.b_events:
                         container_event = ContainerEvent(
                             {
                                 "name": container.name,
-                                "image":  self._get_container_image_str(container),
+                                "image": self._get_container_image_str(container),
                                 "status": status_str,
                                 "state": state_str,
-                                "health": "unknown"
+                                "health": "unknown",
                             }
                         )
-                        #health = self._get_container_health(container_status["Names"])
-                        #if health is not None:
+                        # health = self._get_container_health(container_status["Names"])
+                        # if health is not None:
                         # this must be a valid health as it comes from the docker api (includes unknown)
-                        container_event["health"] = cast(ContainerHealthType, container.health)
+                        container_event["health"] = cast(
+                            ContainerHealthType, container.health
+                        )
 
                         self._register_container(container_event)
 
@@ -542,6 +538,7 @@ class Docker2Mqtt:
         while not self.first_connection_event.wait(5):
             main_logger.debug("Waiting for connection.")
 
+        sleep_counter = 0
         while True:
             try:
                 self.loop()
@@ -565,7 +562,10 @@ class Docker2Mqtt:
                 MAX_QUEUE_SIZE
                 - max(self.docker_events.qsize(), self.docker_stats.qsize())
             )
-            main_logger.debug("Sleep for %.5fs until next iteration", sleep_time)
+            # don't print all the sleep messages ...
+            sleep_counter += 1
+            if sleep_counter % 10 == 0:
+                main_logger.debug("Sleep for %.5fs until next iteration", sleep_time)
             sleep(sleep_time)
 
     def _get_docker_version(self) -> str:
@@ -583,28 +583,14 @@ class Docker2Mqtt:
 
         """
 
-        #TODO self.client.version() - gives lots of detail 
         try:
             docker_version = self.client.version()
             version = docker_version["Version"]
-            return (f"Docker version {version}")
-            # Run the `docker --version` command
 
-            #result = subprocess.run(
-             #   DOCKER_VERSION_CMD,
-             #   capture_output=True,
-             #   text=True,
-             #   check=False,
-            #)
-
-            # Check if the command was successful
-            #if result.returncode == 0:
-            #    # Extract the version information from the output
-            #    return result.stdout.strip()
-            #else:
-              #  raise Docker2MqttException(f"Error: {result.stderr.strip()}")
         except FileNotFoundError:
             return "Docker is not installed or not found in PATH."
+        else:
+            return f"Docker version {version}"
 
     def _get_container_health(self, container: str) -> ContainerHealthType | None:
 
@@ -698,7 +684,7 @@ class Docker2Mqtt:
         )
         try:
             thread_logger.info("Starting events thread")
-            thread_logger.debug("Command: %s", DOCKER_EVENTS_CMD)
+            # thread_logger.debug("Command: %s", DOCKER_EVENTS_CMD)
             #
             # loop to get the Docker events from the api here
             #
@@ -722,13 +708,11 @@ class Docker2Mqtt:
         configure_logger(
             thread_logger, self.cfg["log_level"], self.cfg.get("log_dir", None)
         )
-
+        thread_logger.info("Starting stats thread")
         while True:
             try:
-                for c in self.client.containers.list(
-                    all=True
-                ):  # could filter here ...
-                    container : Container = c
+                for c in self.client.containers.list(all=True):
+                    container: Container = c
                     if container.status != "foo":
                         cpuused = 0
                         cputotal = 0
@@ -754,10 +738,10 @@ class Docker2Mqtt:
                             cputotal = stats["cpu_stats"]["system_cpu_usage"]
                             cores = stats["cpu_stats"]["online_cpus"]
                             netstats = stats.get("networks", None)
-                            #print(f" netstats are {netstats}")
+                            # print(f" netstats are {netstats}")
                             if netstats:
                                 for netname, netinfo in netstats.items():
-                                    #print(f"Network info for {netname}")
+                                    # print(f"Network info for {netname}")
                                     if netinfo:
                                         netrx += netinfo["rx_bytes"]
                                         nettx += netinfo["tx_bytes"]
@@ -786,11 +770,14 @@ class Docker2Mqtt:
                             "blkiotx": blkiotx,
                         }
                         self.docker_stats.put(statDict)
-                        #print(
-                        #    f"[readline_stats] >>> putting stats for {container.name} in queue: {statDict['Name']} {statDict['memoryused']}"
-                        #)
+                        thread_logger.debug(
+                            "putting stats for %s in queue   :  %s",
+                            container.name,
+                            statDict,
+                        )
             except Exception as ex:
-                print(f"error reading stat data {ex}")
+                thread_logger.exception("error reading stat data")
+                thread_logger.debug(ex)
             sleep(self.cfg["stats_record_seconds"])
 
     def _start_readline_status_thread(self) -> None:
@@ -806,9 +793,11 @@ class Docker2Mqtt:
         configure_logger(
             thread_logger, self.cfg["log_level"], self.cfg.get("log_dir", None)
         )
-        containers:list[Container] = self.client.containers.list(all=True)
+        containers: list[Container] = self.client.containers.list(all=True)
+        thread_logger.info("Starting status thread")
         while True:
             for container in containers:
+                thread_logger.debug("Reading Status of Container %s", container.name)
                 try:
                     shortid = container.short_id
                     health = container.health
@@ -835,11 +824,14 @@ class Docker2Mqtt:
                         "exitcode": exitcode,
                     }
                     self.docker_status.put(statusDict)
-                    #print(
-                    #    f"[readline_status] >>> putting status for {container.name} in queue: {statusDict['Name']} {statusDict['created']}"
-                    #)
+                    thread_logger.debug(
+                        "putting status for %s in queue :  %s",
+                        container.name,
+                        statusDict,
+                    )
                 except Exception as ex:
-                    print(f"error reading status data  error is {ex}")
+                    thread_logger.exception("error reading status data  error is ")
+                    thread_logger.debug(ex)
             sleep(self.cfg["stats_record_seconds"])
 
     def _device_definition(
@@ -992,7 +984,7 @@ class Docker2Mqtt:
                     retain=True,
                 )
         if self.b_status:
-        # Status
+            # Status
             for label, field, device_class, unit, icon in STATUS_REGISTRATION_ENTRIES:
                 registration_topic = self.homeassistant_discovery_sensor_topic.format(
                     INVALID_HA_TOPIC_CHARS.sub("_", f"{container}_{field}_status")
@@ -1154,10 +1146,7 @@ class Docker2Mqtt:
                 return False
         return True
 
-    def _get_container_image_str(
-            self, container: Container
-    ) -> str:
-        
+    def _get_container_image_str(self, container: Container) -> str:
         image = container.image
         if image:
             if len(image.tags) > 0:
@@ -1339,7 +1328,7 @@ class Docker2Mqtt:
         try:
             if self.b_status:
                 status_dict = self.docker_status.get(block=False)
-            events_logger.debug("Events queue length: %s", docker_status_qsize)
+            status_logger.debug("Events queue length: %s", docker_status_qsize)
         except Empty:
             # No data right now, just move along.
             pass
@@ -1351,11 +1340,11 @@ class Docker2Mqtt:
 
                     container: str = status["Name"]
                     if not self._filter_container(container):
-                        stats_logger.debug("Skip container: %s", container)
+                        status_logger.debug("Skip container: %s", container)
                         return
 
-                    if events_logger.isEnabledFor(logging.DEBUG):
-                        events_logger.debug(
+                    if status_logger.isEnabledFor(logging.DEBUG):
+                        status_logger.debug(
                             "Have status info to process for Container name: %s",
                             container,
                         )
@@ -1370,13 +1359,13 @@ class Docker2Mqtt:
                         seconds=self.cfg["stats_record_seconds"]
                     )
                     container_date = self.known_status_containers[container]["last"]
-                    if stats_logger.isEnabledFor(logging.DEBUG):
-                        stats_logger.debug(
+                    if status_logger.isEnabledFor(logging.DEBUG):
+                        status_logger.debug(
                             "Compare dates %s %s", check_date, container_date
                         )
                     if container_date > check_date:
-                        if stats_logger.isEnabledFor(logging.DEBUG):
-                            stats_logger.debug(
+                        if status_logger.isEnabledFor(logging.DEBUG):
+                            status_logger.debug(
                                 "Not processing record, too recent: %s ",
                                 container,
                             )
@@ -1384,20 +1373,20 @@ class Docker2Mqtt:
                     status_line = json.dumps(status)
                     stat_key = hashlib.md5(status_line.encode("utf-8")).hexdigest()
                     existing_stat_key = self.known_status_containers[container]["key"]
-                    if stats_logger.isEnabledFor(logging.DEBUG):
-                        stats_logger.debug(
+                    if status_logger.isEnabledFor(logging.DEBUG):
+                        status_logger.debug(
                             "Compare hashes %s %s", stat_key, existing_stat_key
                         )
                     if stat_key == existing_stat_key:
-                        if stats_logger.isEnabledFor(logging.DEBUG):
-                            stats_logger.debug(
+                        if status_logger.isEnabledFor(logging.DEBUG):
+                            status_logger.debug(
                                 "Not processing duplicate record: %s ",
                                 container,
                             )
                         return
 
-                    if stats_logger.isEnabledFor(logging.DEBUG):
-                        stats_logger.info("Processing %s stats", container)
+                    if status_logger.isEnabledFor(logging.DEBUG):
+                        status_logger.info("Processing %s stats", container)
                     self.known_status_containers[container]["key"] = stat_key
                     self.known_status_containers[container]["last"] = (
                         datetime.datetime.now()
@@ -1415,18 +1404,19 @@ class Docker2Mqtt:
                             "health": status["health"],
                         }
                     )
-                    if stats_logger.isEnabledFor(logging.DEBUG):
-                        stats_logger.debug(
-                            "Printing container stats: %s", container_status
+                    if status_logger.isEnabledFor(logging.DEBUG):
+                        status_logger.debug(
+                            "Will send status container with contents : %s",
+                            container_status,
                         )
                     self.last_status_containers[container] = container_status
 
                 except Exception as ex:
-                    events_logger.debug(ex)
+                    status_logger.debug(ex)
                     raise Docker2MqttStatsException("Error reading status") from ex
 
-                if events_logger.isEnabledFor(logging.DEBUG):
-                    events_logger.debug("Sending mqtt payload")
+                if status_logger.isEnabledFor(logging.DEBUG):
+                    status_logger.debug("Sending mqtt payload")
                 self._mqtt_send(
                     self.cstatus_topic.format(container),
                     json.dumps(self.last_status_containers[container]),
@@ -1463,7 +1453,7 @@ class Docker2Mqtt:
                         "image": event.get("image", event.get("from", "unknown")),
                         "status": "created",
                         "state": "off",
-                        "health": "unknown"
+                        "health": "unknown",
                     }
                 )
                 health = self._get_container_health(container)
@@ -1506,7 +1496,7 @@ class Docker2Mqtt:
                             "image": self.known_event_containers[old_name]["image"],
                             "status": self.known_event_containers[old_name]["status"],
                             "state": self.known_event_containers[old_name]["state"],
-                            "health": "unknown"
+                            "health": "unknown",
                         }
                     )
                     health = self.known_event_containers[old_name].get("health")
@@ -1561,23 +1551,11 @@ class Docker2Mqtt:
             # No data right now, just move along.
             return
 
-            #################################
-            # Examples:
-            # {"BlockIO":"408MB / 0B","CPUPerc":"0.03%","Container":"9460abca90f1","ID":"9460abca90f1","MemPerc":"22.84%","MemUsage":"9.137MiB / 40MiB","Name":"d2mqtt","NetIO":"882kB / 1.19MB","PIDs":"11"}
-            # {"BlockIO":"--","CPUPerc":"--","Container":"b5ad8ff32144","ID":"b5ad8ff32144","MemPerc":"--","MemUsage":"-- / --","Name":"camera_events","NetIO":"--","PIDs":"--"}
-            #################################
-
         if self.b_stats and docker_stats_qsize > 0:
             if stat_dict and len(stat_dict) > 0:
                 try:
-                    # stat_line = "".join(
-                    #    [c for c in stat_line if ord(c) > 31 or ord(c) == 9]
-                    # )
-                    # stat_line = stat_line.lstrip("[2J[H")
-                    # print(':'.join(hex(ord(x))[2:] for x in stat_line))
-                    stat = stat_dict  # json.loads(stat_line)
-                    # print("loaded json")
-                    # print(stat)
+                    stat = stat_dict
+
                     container: str = stat["Name"]
                     if not self._filter_container(container):
                         stats_logger.debug("Skip container: %s", container)
@@ -1641,10 +1619,6 @@ class Docker2Mqtt:
                         self.known_stat_containers[container]["last"] - container_date
                     ).total_seconds()
 
-                    # "61.13MiB / 2.86GiB"
-                    # regex = r"(?P<used>\d+?\.?\d+?)(?P<used_symbol>[MG]iB)\s+\/\s(?P<limit>\d+?\.?\d+?)(?P<limit_symbol>[MG]iB)"
-                    # regex = r"(?P<used>.+?)(?P<used_symbol>[kKMGT]?i?B)\s+\/\s+(?P<limit>.+?)(?P<limit_symbol>[kKMGT]?i?B)"
-
                     # here calculate the cpu and memory used
                     last_stat = self.last_stat_containers[container]
                     delta_cpu_used = 0
@@ -1664,7 +1638,11 @@ class Docker2Mqtt:
 
                     mbused = float(stat["memoryused"]) / float(1024.0 * 1024.0)
                     memString = f"{mbused:.3f}MiB/{stat['memorylimit'] / float(1024.0 * 1024.0 * 1024.0):.3f}GiB"
-                    mem_pct = stat["memoryused"] / stat["memorylimit"] if stat["memorylimit"] > 0 else 0.
+                    mem_pct = (
+                        stat["memoryused"] / stat["memorylimit"]
+                        if stat["memorylimit"] > 0
+                        else 0.0
+                    )
 
                     netinputrate = (
                         max(
@@ -1744,7 +1722,8 @@ class Docker2Mqtt:
                     )
                     if stats_logger.isEnabledFor(logging.DEBUG):
                         stats_logger.debug(
-                            "Printing container stats: %s", container_stats
+                            "Will send stats container with contents : %s",
+                            container_stats,
                         )
                     self.last_stat_containers[container] = container_stats
 
