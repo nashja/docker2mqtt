@@ -704,7 +704,7 @@ class Docker2Mqtt:
             try:
                 for c in self.client.containers.list(all=True):
                     container: Container = c
-                    if container.status != "foo":
+                    if container.status:
                         cpuused = 0
                         cputotal = 0
                         memorylimit = 0
