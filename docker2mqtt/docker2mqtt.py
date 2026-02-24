@@ -90,18 +90,25 @@ class Docker2Mqtt:
         The config for docker2mqtt
     b_stats
         Activate the stats
+    b_status
+        Activate the status readout
     b_events
         Activate the events
     docker_events
         Queue with docker events
     docker_stats
         Queue with docker stats
-
+    docker_status
+        Queue with docker status
     known_event_containers
         The dict with the known container events
     known_stat_containers
         The dict with the known container stats references
+    known_status_containers
+        The dict with the known container stats references
     last_stat_containers
+        The dict with the last container stats
+    last_status_containers
         The dict with the last container stats
     mqtt
         The mqtt client
@@ -109,6 +116,8 @@ class Docker2Mqtt:
         The thread to collect events from docker
     docker_stats_t
         The thread to collect stats from docker
+    docker_status_t
+        The thread to collect status from docker
     docker_version
         The docker version
     discovery_binary_sensor_topic
@@ -121,6 +130,8 @@ class Docker2Mqtt:
         Topic template for a version value
     stats_topic
         Topic template for stats
+    status_topic
+        Topic template for status
     events_topic
         Topic template for an events
     do_not_exit
@@ -151,6 +162,7 @@ class Docker2Mqtt:
 
     docker_events_t: Thread
     docker_stats_t: Thread
+    docker_status_t: Thread
 
     docker_version: str
 
@@ -348,14 +360,7 @@ class Docker2Mqtt:
             self._mqtt_send(self.status_topic, "online", retain=True)
             self._mqtt_send(self.version_topic, self.version, retain=True)
 
-            # Register containers with HA
-            # moved to docker API
-            # docker_ps = subprocess.run(
-            #    DOCKER_PS_CMD, capture_output=True, text=True, check=False
-            # )
             for c in self.client.containers.list(all=True):
-                # for line in docker_ps.stdout.splitlines():
-                #    container_status = json.loads(line)
                 container: Container = c
                 if container.name:
                     if self._filter_container(container.name):
@@ -372,7 +377,7 @@ class Docker2Mqtt:
                             status_str = "stopped"
                             state_str = "off"
 
-                        # if self.b_events:
+                        # if self.b_events: # this was a bug ...
                         container_event = ContainerEvent(
                             {
                                 "name": container.name,
@@ -666,17 +671,13 @@ class Docker2Mqtt:
         self.docker_events_t.start()
 
     def _run_readline_events_thread(self) -> None:
-        """Run docker events and continually read lines from it."""
+        """Use the Docker API to get an iterator over events as they happen."""
         thread_logger = logging.getLogger("event-thread")
         configure_logger(
             thread_logger, self.cfg["log_level"], self.cfg.get("log_dir", None)
         )
         try:
             thread_logger.info("Starting events thread")
-            # thread_logger.debug("Command: %s", DOCKER_EVENTS_CMD)
-            #
-            # loop to get the Docker events from the api here
-            #
             for event in self.client.events(decode=True, filters={"type": "container"}):
                 self.docker_events.put(event)
         except Exception as ex:
@@ -692,7 +693,7 @@ class Docker2Mqtt:
         self.docker_stats_t.start()
 
     def _run_readline_stats_thread(self) -> None:
-        """Run docker events and continually read lines from it."""
+        """Use the Docker API to sample the stats from all containers."""
         thread_logger = logging.getLogger("stats-thread")
         configure_logger(
             thread_logger, self.cfg["log_level"], self.cfg.get("log_dir", None)
@@ -777,7 +778,7 @@ class Docker2Mqtt:
         self.docker_status_t.start()
 
     def _run_readline_status_thread(self) -> None:
-        """Run docker events and continually read lines from it."""
+        """Use the Docker API to sample the Status of all containers."""
         thread_logger = logging.getLogger("status-thread")
         configure_logger(
             thread_logger, self.cfg["log_level"], self.cfg.get("log_dir", None)
@@ -946,7 +947,7 @@ class Docker2Mqtt:
                     INVALID_HA_TOPIC_CHARS.sub("_", f"{container}_{field}_stats")
                 )
                 stats_topic = self.stats_topic.format(container)
-                precision = "| round(3)" if unit == "%" else ""
+                precision = "| round(3)" if unit == "%" else ""  # for % values, reduce significant figures displayed by default 
                 registration_packet = ContainerEntry(
                     {
                         "name": label,
@@ -1140,6 +1141,19 @@ class Docker2Mqtt:
         return True
 
     def _get_container_image_str(self, container: Container) -> str:
+        """Get the name of an image for a docker Container object.
+
+        Parameters
+        ----------
+        container
+            The Docker Container object
+
+        Returns
+        -------
+        str
+            The name of the main image of the container
+
+        """
         image = container.image
         if image:
             if len(image.tags) > 0:
@@ -1310,7 +1324,7 @@ class Docker2Mqtt:
         Raises
         ------
         Docker2MqttEventsException
-            If anything goes wrong in the processing of the events
+            If anything goes wrong in the processing of the status
 
         """
         status_dict = {}
