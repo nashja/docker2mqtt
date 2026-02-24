@@ -22,6 +22,7 @@ import uuid
 
 import docker
 from docker.models.containers import Container
+from docker.models.images import Image
 import paho.mqtt.client
 import paho.mqtt.enums
 
@@ -148,9 +149,9 @@ class Docker2Mqtt:
     b_events: bool = False
     b_status: bool = False
 
-    docker_events: Queue[dict] = Queue(maxsize=MAX_QUEUE_SIZE)
-    docker_stats: Queue[dict] = Queue(maxsize=MAX_QUEUE_SIZE)
-    docker_status: Queue[dict] = Queue(maxsize=MAX_QUEUE_SIZE)
+    docker_events: Queue[dict[str, Any]] = Queue(maxsize=MAX_QUEUE_SIZE)
+    docker_stats: Queue[dict[str, Any]] = Queue(maxsize=MAX_QUEUE_SIZE)
+    docker_status: Queue[dict[str, Any]] = Queue(maxsize=MAX_QUEUE_SIZE)
     known_event_containers: dict[str, ContainerEvent] = {}
     known_stat_containers: dict[str, ContainerStatsRef] = {}
     known_status_containers: dict[str, ContainerStatsRef] = {}
@@ -728,10 +729,8 @@ class Docker2Mqtt:
                             cputotal = stats["cpu_stats"]["system_cpu_usage"]
                             cores = stats["cpu_stats"]["online_cpus"]
                             netstats = stats.get("networks", None)
-                            # print(f" netstats are {netstats}")
                             if netstats:
-                                for netname, netinfo in netstats.items():
-                                    # print(f"Network info for {netname}")
+                                for _netname, netinfo in netstats.items():
                                     if netinfo:
                                         netrx += netinfo["rx_bytes"]
                                         nettx += netinfo["tx_bytes"]
@@ -947,7 +946,9 @@ class Docker2Mqtt:
                     INVALID_HA_TOPIC_CHARS.sub("_", f"{container}_{field}_stats")
                 )
                 stats_topic = self.stats_topic.format(container)
-                precision = "| round(3)" if unit == "%" else ""  # for % values, reduce significant figures displayed by default 
+                precision = (
+                    "| round(3)" if unit == "%" else ""
+                )  # for % values, reduce significant figures displayed by default
                 registration_packet = ContainerEntry(
                     {
                         "name": label,
@@ -1154,12 +1155,13 @@ class Docker2Mqtt:
             The name of the main image of the container
 
         """
-        image = container.image
-        if image:
-            if len(image.tags) > 0:
-                imagetag = image.tags[0]
-            else:
-                imagetag = ""
+
+        imagetag: str = ""
+        if container.image:
+            image: Image = container.image
+            if image:
+                if len(image.tags) > 0:
+                    imagetag = image.tags[0]
         return imagetag
 
     def _stat_to_value(
@@ -1624,13 +1626,13 @@ class Docker2Mqtt:
 
                     # here calculate the cpu and memory used
                     last_stat = self.last_stat_containers[container]
-                    delta_cpu_used = 0
-                    delta_total_cpu = 0
-                    cpu_percent = 0
+                    delta_cpu_used = 0.0
+                    delta_total_cpu = 0.0
+                    cpu_percent = 0.0
                     if len(last_stat) > 0:
                         delta_cpu_used = stat["cpuused"] - last_stat["cpuused"]
                         delta_total_cpu = stat["cputotal"] - last_stat["systemcpu"]
-                        cores = stat["cores"]
+                        cores = float(stat["cores"])
                         # this now works - needed to add the cores ...
                         cpu_percent = (
                             float(delta_cpu_used * cores * 100.0)
