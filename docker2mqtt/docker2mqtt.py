@@ -954,6 +954,7 @@ class Docker2Mqtt:
                     INVALID_HA_TOPIC_CHARS.sub("_", f"{container}_{field}_stats")
                 )
                 stats_topic = self.stats_topic.format(container)
+                precision = "| round(3)" if unit == "%" else ""
                 registration_packet = ContainerEntry(
                     {
                         "name": label,
@@ -962,7 +963,7 @@ class Docker2Mqtt:
                         "payload_available": "online",
                         "payload_not_available": "offline",
                         "state_topic": stats_topic,
-                        "value_template": f"{{{{ value_json.{field} if value_json is not undefined and value_json.{field} is not undefined else None }}}}",
+                        "value_template": f"{{{{ value_json.{field}  {precision} if value_json is not undefined and value_json.{field} is not undefined else None}}}}",
                         "unit_of_measurement": unit,
                         "icon": icon,
                         "payload_on": None,
