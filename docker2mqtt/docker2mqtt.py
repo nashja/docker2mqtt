@@ -14,7 +14,6 @@ from queue import Empty, Queue
 import re
 import signal
 import socket
-import subprocess
 import sys
 from threading import Event, Thread
 from time import sleep, time
@@ -32,7 +31,6 @@ from . import __version__
 from .const import (
     DESTROYED_CONTAINER_TTL_DEFAULT,
     DISCOVERY_DEFAULT,
-    DOCKER_INSPECT_HEALTH_CMD,
     EVENTS_REGISTRATION_ENTRIES,
     HOMEASSISTANT_PREFIX_DEFAULT,
     HOMEASSISTANT_SINGLE_DEVICE_DEFAULT,
@@ -381,16 +379,11 @@ class Docker2Mqtt:
                                 "image": self._get_container_image_str(container),
                                 "status": status_str,
                                 "state": state_str,
-                                "health": "unknown",
                             }
                         )
-                        # health = self._get_container_health(container_status["Names"])
-                        # if health is not None:
-                        # this must be a valid health as it comes from the docker api (includes unknown)
-                        container_event["health"] = cast(
-                            ContainerHealthType, container.health
-                        )
-
+                        health = self._get_container_health(container.name)
+                        if health is not None:
+                            container_event["health"] = health
                         self._register_container(container_event)
 
             self.first_connection_event.set()
@@ -592,21 +585,17 @@ class Docker2Mqtt:
         else:
             return f"Docker version {version}"
 
-    def _get_container_health(self, container: str) -> ContainerHealthType | None:
+    def _get_container_health(self, container_name: str) -> ContainerHealthType | None:
 
         containers = self.client.containers
+        container = containers.get(container_name)
 
-        result = subprocess.run(
-            [
-                *DOCKER_INSPECT_HEALTH_CMD,
-                container,
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
+        health = container.health
+        return (
+            cast(ContainerHealthType, health)
+            if health and health != "unknown"
+            else None
         )
-        health = result.stdout.strip()
-        return cast(ContainerHealthType, health) if health else None
 
     def _mqtt_send(self, topic: str, payload: str, retain: bool = False) -> None:
         """Send a mqtt payload to for a topic.
@@ -800,6 +789,9 @@ class Docker2Mqtt:
                 thread_logger.debug("Reading Status of Container %s", container.name)
                 try:
                     shortid = container.short_id
+                    # if container.name:
+                    #    health = self._get_container_health(container.name)
+                    # just report the health here - in binary sensor check if healthy or unhealthy
                     health = container.health
                     status = container.status
                     imagetag = self._get_container_image_str(container)
@@ -1266,7 +1258,6 @@ class Docker2Mqtt:
             If anything goes wrong in the processing of the events
 
         """
-        event_line = ""
 
         docker_events_qsize = self.docker_events.qsize()
         try:
@@ -1453,7 +1444,6 @@ class Docker2Mqtt:
                         "image": event.get("image", event.get("from", "unknown")),
                         "status": "created",
                         "state": "off",
-                        "health": "unknown",
                     }
                 )
                 health = self._get_container_health(container)
@@ -1496,7 +1486,6 @@ class Docker2Mqtt:
                             "image": self.known_event_containers[old_name]["image"],
                             "status": self.known_event_containers[old_name]["status"],
                             "state": self.known_event_containers[old_name]["state"],
-                            "health": "unknown",
                         }
                     )
                     health = self.known_event_containers[old_name].get("health")

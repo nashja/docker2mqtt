@@ -11,7 +11,7 @@ ContainerEventStatusType = Literal[
 ]
 """Container event docker status"""
 
-ContainerHealthType = Literal["starting", "healthy", "unhealthy","unknown"]
+ContainerHealthType = Literal["starting", "healthy", "unhealthy"]
 """Container event docker status"""
 
 
