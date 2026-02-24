@@ -1,7 +1,8 @@
 services:
   docker2mqtt:
-    build:
-      context: .
+    #build:
+    #  context: .
+    image: docker.io/library/docker2mqtt:latest                         
     container_name: docker2mqtt
     env_file:
       - .env
