@@ -35,7 +35,7 @@ status_logger = logging.getLogger("status")
 mqtt_logger = logging.getLogger("mqtt")
 
 
-def str_to_bool(s):
+def str_to_bool(s: str) -> bool:
     """str_to_bool function.
 
     since bool("False") just returns true
@@ -86,9 +86,9 @@ if __name__ == "__main__":
             "mqtt_qos": int(environ.get("MQTT_QOS", MQTT_QOS_DEFAULT)),
             "container_whitelist": whitelist.split(",") if len(whitelist) > 0 else [],
             "container_blacklist": blacklist.split(",") if len(blacklist) > 0 else [],
-            "enable_events": str_to_bool(environ.get("EVENTS", EVENTS_DEFAULT)),
-            "enable_stats": str_to_bool(environ.get("STATS", STATS_DEFAULT)),
-            "enable_status": str_to_bool(environ.get("STATUS", STATUS_DEFAULT)),
+            "enable_events": str_to_bool(environ.get("EVENTS", str(EVENTS_DEFAULT))),
+            "enable_stats": str_to_bool(environ.get("STATS", str(STATS_DEFAULT))),
+            "enable_status": str_to_bool(environ.get("STATUS", str(STATUS_DEFAULT))),
             "stats_record_seconds": int(
                 environ.get("STATS_RECORD_SECONDS", STATS_RECORD_SECONDS_DEFAULT)
             ),

@@ -51,7 +51,7 @@
     {
       "label": "pre-commit: run all files",
       "type": "shell",
-      "command": "pre-commit run --all-files",
+      "command": "scripts/run-in-env.sh pre-commit run --all-files",
       "problemMatcher": [],
       "group": {
         "kind": "build"
