@@ -11,11 +11,13 @@ dynamic = ["version", "readme"]
 description = "Send your docker stats and and events to mqtt and discovery them in home assistant."
 authors = [
   { name = "Cyrill Raccaud", email = "cyrill.raccaud+pypi@gmail.com" },
+  { name = "Jordan Nash", email = "sanfrancejan@gmail.com" },
 ]
 dependencies = [
   "jsons",
   "psutil",
   "paho-mqtt",
+  "docker",
   "numpy",
   "typing-extensions"
 ]
@@ -44,9 +46,9 @@ version = {attr = "docker2mqtt.__version__"}
 readme = {file = ["README.md", "CHANGELOG.md"], content-type = "text/markdown"}
 
 [project.urls]
-Documentation = "https://miaucl.github.io/docker2mqtt/"
-Source = "https://github.com/miaucl/docker2mqtt"
-Issues = "https://github.com/miaucl/docker2mqtt/issues"
+Documentation = "https://nashja.github.io/docker2mqtt/"
+Source = "https://github.com/nashja/docker2mqtt"
+Issues = "https://github.com/nashja/docker2mqtt/issues"
 
 [project.scripts]
 docker2mqtt = "docker2mqtt.docker2mqtt:main"

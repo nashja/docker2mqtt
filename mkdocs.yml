@@ -1,8 +1,8 @@
 site_name: Docker2Mqtt
 site_description: Transfer docker state to mqtt and optionally to home assistant
 
-repo_url: https://github.com/miaucl/docker2mqtt
-repo_name: miaucl/docker2mqtt
+repo_url: https://github.com/nashja/docker2mqtt
+repo_name: nashja/docker2mqtt
 
 theme:
   name: material

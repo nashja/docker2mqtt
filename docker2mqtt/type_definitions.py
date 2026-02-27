@@ -115,7 +115,7 @@ class ContainerEvent(TypedDict):
 
 
 class ContainerStatus(TypedDict):
-    """A container event object to send to an mqtt topic.
+    """A container status object to send to an mqtt topic.
 
     Attributes
     ----------
@@ -123,12 +123,20 @@ class ContainerStatus(TypedDict):
         The name of the container
     image
         The image the container is running
+    shortid
+        The short id which identifies the container
     status
-        The docker status the container is in
-    state
-        The state of the container
+        The current status of the container
+    created
+        The timestamp when the container was created
+    startedat
+        The timestamp when the container last started running
+    finishedat
+        The timestamp when the container last finished
+    exitcode
+        The exitcode when the container last exited
     health
-        The health of the container
+        The current health of the container
 
     """
 
@@ -171,29 +179,35 @@ class ContainerStats(TypedDict):
     memory
         Human-readable memory information from docker
     memoryused
-        Used memory in MB
+        Used memory in B
     memorylimit
-        Memory limit in MB
+        Memory limit in B
     netio
         Human-readable network information from docker
     netinput
-        Network input in MB
+        Network input in B
     netinputrate
-        Network input rate in MB/s
+        Network input rate in B/s
     netoutput
-        Network output in MB
+        Network output in B
     netoutputrate
-        Network output rate in MB/s
+        Network output rate in B/s
     blockinput
-        Block (to disk) input in MB
+        Block (to disk) input in B
     blockinputrate
-        Block (to disk) input rate in MB/s
+        Block (to disk) input rate in B/s
     blockoutput
-        Block (to disk) output in MB
+        Block (to disk) output in B
     blockoutputrate
-        Block (to disk) output rate in MB/s
+        Block (to disk) output rate in B/s
     cpu
         The cpu usage by the container in cpu-% (ex.: a docker with 4 cores has 400% cpu available)
+    cpuused
+        The total amount of cpu used by the container
+    systemcpu
+        The total amount of cpu used by docker
+    cores
+        The number of cores used by docker
 
     """
 
