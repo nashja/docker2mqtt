@@ -2,8 +2,8 @@ name: Publish Python distribution to Github Make Docker container image
 
 on: 
     push:
-        branches: 
-        - 'private_workflow'
+        #branches: 
+        #- 'private_workflow'
         tags:
         - 'v[0-9]+.[0-9]+.dev[0-9]+' # glob pattern for semantic version tags like v1.0.1
 
