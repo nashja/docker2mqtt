@@ -110,7 +110,7 @@ jobs:
       id: docker_meta
       uses: docker/metadata-action@v5
       with:
-        images: ghcr.io/miaucl/docker2mqtt
+        images: ghcr.io/nashja/docker2mqtt
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v3
       with:
