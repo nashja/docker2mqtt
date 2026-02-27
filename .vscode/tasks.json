@@ -38,7 +38,7 @@
     {
       "label": "mkdocs: serve",
       "type": "shell",
-      "command": "mkdocs serve",
+      "command": "scripts/run-in-env.sh mkdocs serve",
       "problemMatcher": [],
       "presentation": {
         "focus": true,

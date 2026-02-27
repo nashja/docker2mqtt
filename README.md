@@ -1,61 +1,29 @@
 # docker2mqtt - Deliver docker status information over MQTT
 
-[![Mypy](https://github.com/miaucl/docker2mqtt/actions/workflows/mypy.yaml/badge.svg)](https://github.com/miaucl/docker2mqtt/actions/workflows/mypy.yaml)
-[![Ruff](https://github.com/miaucl/docker2mqtt/actions/workflows/ruff.yml/badge.svg)](https://github.com/miaucl/docker2mqtt/actions/workflows/ruff.yml)
-[![Markdownlint](https://github.com/miaucl/docker2mqtt/actions/workflows/markdownlint.yml/badge.svg)](https://github.com/miaucl/docker2mqtt/actions/workflows/markdownlint.yml)
-[![Publish](https://github.com/miaucl/docker2mqtt/actions/workflows/publish.yml/badge.svg)](https://github.com/miaucl/docker2mqtt/actions/workflows/publish.yml)
+[![Mypy](https://github.com/nashja/docker2mqtt/actions/workflows/mypy.yaml/badge.svg)](https://github.com/nashja/docker2mqtt/actions/workflows/mypy.yaml)
+[![Ruff](https://github.com/nashja/docker2mqtt/actions/workflows/ruff.yml/badge.svg)](https://github.com/nashja/docker2mqtt/actions/workflows/ruff.yml)
+[![Markdownlint](https://github.com/nashja/docker2mqtt/actions/workflows/markdownlint.yml/badge.svg)](https://github.com/nashja/docker2mqtt/actions/workflows/markdownlint.yml)
+[![Publish](https://github.com/nashja/docker2mqtt/actions/workflows/publish.yml/badge.svg)](https://github.com/nashja/docker2mqtt/actions/workflows/publish.yml)
 
-This program uses `docker events` to watch for changes in your docker containers, and `docker stats` for metrics about those containers, and delivers current status to MQTT. It will also publish Home Assistant MQTT Discovery messages so that (binary) sensors automatically show up in Home Assistant.
-
-_This is part of a family of similar tools:_
-
-* [miaucl/linux2mqtt](https://github.com/miaucl/linux2mqtt)
-* [miaucl/docker2mqtt](https://github.com/miaucl/docker2mqtt)
-* [miaucl/systemctl2mqtt](https://github.com/miaucl/systemctl2mqtt)
+The parent fork of this program uses `docker events` to watch for changes in your docker containers, and `docker stats` for metrics about those containers, and delivers current status to MQTT.
+This version uses the docker pytyon API to gather some additional information.
+The program publishes Home Assistant MQTT Discovery messages so that (binary) sensors automatically show up in Home Assistant.
 
 ## Installation and Deployment
 
-It is available as python package on [pypi/docker2mqtt](https://pypi.org/p/docker2mqtt) or as a docker image on [ghcr.io/docker2mqtt](https://github.com/miaucl/docker2mqtt/pkgs/container/docker2mqtt).
-
-### Pypi package
-
-[![PyPI version](https://badge.fury.io/py/docker2mqtt.svg)](https://pypi.org/p/docker2mqtt)
-
-```bash
-pip install docker2mqtt
-docker2mqtt --name MyDockerName --events -vvvvv
-```
-
-Usage
-
-```python
-from docker2mqtt import Docker2Mqtt, DEFAULT_CONFIG
-
-cfg = Docker2MqttConfig({ 
-  **DEFAULT_CONFIG,
-  "host": "mosquitto",
-  "enable_events": True
-})
-
-try:
-  docker2mqtt = Docker2Mqtt(cfg)
-  docker2mqtt.loop_busy()
-
-except Exception as ex:
-  # Do something
-```
+It is available as a docker image on [ghcr.io/docker2mqtt](https://github.com/nashja/docker2mqtt/pkgs/container/docker2mqtt).
 
 ### Docker image
 
-[![1] ![2] ![3]](https://github.com/miaucl/docker2mqtt/pkgs/container/docker2mqtt)
+[![1] ![2] ![3]](https://github.com/nashja/docker2mqtt/pkgs/container/docker2mqtt)
 
-[1]: <https://ghcr-badge.egpl.dev/miaucl/docker2mqtt/tags?color=%23B8860B&ignore=latest&n=1&label=image&trim=>
-[2]: <https://ghcr-badge.egpl.dev/miaucl/docker2mqtt/tags?color=%2344cc11&ignore=latest,*-rc*&n=3&label=image&trim=>
-[3]: <https://ghcr-badge.egpl.dev/miaucl/docker2mqtt/size?color=%231E90FF&tag=latest&label=image+size&trim=>
+[1]: <https://ghcr-badge.egpl.dev/nashja/docker2mqtt/tags?color=%23B8860B&ignore=latest&n=1&label=image&trim=>
+[2]: <https://ghcr-badge.egpl.dev/nashja/docker2mqtt/tags?color=%2344cc11&ignore=latest,*-rc*&n=3&label=image&trim=>
+[3]: <https://ghcr-badge.egpl.dev/nashja/docker2mqtt/size?color=%231E90FF&tag=latest&label=image+size&trim=>
 
 Use docker to launch this. Please note that you must give it access to your docker socket, which is typically located at `/var/run/docker.sock`. A typical invocation is:
 
-`docker run --network mqtt -e MQTT_HOST=mosquitto -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/miaucl/docker2mqtt`
+`docker run --network mqtt -e MQTT_HOST=mosquitto -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/nashja/docker2mqtt`
 
 You can also use docker compose:
 
@@ -63,7 +31,7 @@ You can also use docker compose:
 services:
   docker2mqtt:
     container_name: docker2mqtt
-    image: ghcr.io/miaucl/docker2mqtt
+    image: ghcr.io/nashja/docker2mqtt
     environment:
       - DOCKER2MQTT_HOSTNAME=my_docker_host
       - MQTT_HOST=mosquitto
@@ -78,7 +46,7 @@ services:
 
 ## Default Configuration
 
-You can use environment variables to control the behavior.
+Running under docker you can use environment variables to control the behavior, using an env_file in docker compose is an easy way to configure
 
 | Config | Env Variable | Default | Description |
 | -------- | -------------- | --------- | ------------- |
@@ -100,14 +68,15 @@ You can use environment variables to control the behavior.
 | `container_blacklist` | `CONTAINER_BLACKLIST` | | Define a blacklist for containers to consider, takes priority over whitelist. The entries are either match as literal strings or as regex. |
 | `destroyed_container_ttl` | `DESTROYED_CONTAINER_TTL` | `86400` | How long, in seconds, before destroyed containers are removed from Home Assistant. Containers won't be removed if the service is restarted before the TTL expires. |
 | `stats_record_seconds` | `STATS_RECORD_SECONDS` | `30` | The number of seconds to record state and make an average |
-| `enable_events` | `EVENTS` | `<none>` | Set to enable and leave out to disable processing events |
-| `enable_stats` | `STATS` | `<none>` | Set to enable and leave out to disable processing statistics |
+| `enable_events` | `EVENTS` | `False` | Set to enable and leave out to disable processing events |
+| `enable_stats` | `STATS` | `False` | Set to enable and leave out to disable processing statistics |
+| `enable_status` | `STATUS` | `False` | Set to enable and leave out to disable processing statistics |
 
 ## Consuming The Data
 
-Data is published to the topic `docker/<DOCKER2MQTT_HOSTNAME>/<container>/events` using JSON serialization. It will arrive whenever a change happens and its type can be inspected in [type_definitions.py](https://github.com/miaucl/docker2mqtt/blob/master/docker2mqtt/type_definitions.py) or the documentation.
+Data is published to the topic `docker/<DOCKER2MQTT_HOSTNAME>/<container>/events` using JSON serialization. It will arrive whenever a change happens and its type can be inspected in [type_definitions.py](https://github.com/nashja/docker2mqtt/blob/private_workflow/docker2mqtt/type_definitions.py) or the documentation.
 
-Data is also published to the topic `docker/<DOCKER2MQTT_HOSTNAME>/<container>/stats` using JSON serialization. It will arrive every `STATS_RECORD_SECONDS` seconds or so and its type can be inspected in [type_definitions.py](https://github.com/miaucl/docker2mqtt/blob/master/docker2mqtt/type_definitions.py) or the documentation.
+Data is also published to the topic `docker/<DOCKER2MQTT_HOSTNAME>/<container>/stats` using JSON serialization. It will arrive every `STATS_RECORD_SECONDS` seconds or so and its type can be inspected in [type_definitions.py](https://github.com/nashja/docker2mqtt/blob/private_workflow/docker2mqtt/type_definitions.py) or the documentation.
 
 ## Home Assistant
 
@@ -121,8 +90,6 @@ A few assumptions:
 
 After you start the service (binary) sensors should show up in Home Assistant immediately. Look for sensors that start with `(binary_)sensor.docker`. Metadata about the container will be available as attributes for events, which you can then expose using template sensors if you wish.
 
-![Screenshot of Home Assistant sensor showing status and attributes.](https://raw.githubusercontent.com/miaucl/docker2mqtt/master/media/ha_screenshot.png)
-
 ## Logging
 
 `docker2mqtt` can log to a directory in addition to the console using the `--logdir` parameter. The specified directory can be absolute or relative and is created if it doesn't exist. The verbosity parameter applies to file logging and the log file size is limited to 1M bytes and 5 previous files are kept.
@@ -131,7 +98,7 @@ After you start the service (binary) sensors should show up in Home Assistant im
 
 ## Documentation
 
-Using `mkdocs`, the documentation and reference is generated and available on [github pages](https://miaucl.github.io/docker2mqtt/).
+Using `mkdocs`, the documentation and reference is generated and available on [github pages](https://nashja.github.io/docker2mqtt/).
 
 ## Dev
 
@@ -152,7 +119,7 @@ pre-commit install
 pre-commit run --all-files
 ```
 
-Following VSCode integrations may be helpful:
+The following VSCode integrations may be helpful:
 
 * [ruff](https://marketplace.visualstudio.com/items?itemName=charliermarsh.ruff)
 * [mypy](https://marketplace.visualstudio.com/items?itemName=matangover.mypy)
@@ -164,4 +131,12 @@ To release a prerelease version, it must be done from a feature branch (**not** 
 
 ## Credits
 
-This is a detached fork from the repo <https://github.com/skullydazed/docker2mqtt>, which does not seem to get evolved anymore.
+This version has been forked from <https://github.com/miaucl/docker2mqtt>
+
+_It is part of a very useful family of similar tools:_
+
+* [miaucl/linux2mqtt](https://github.com/miaucl/linux2mqtt)
+* [miaucl/docker2mqtt](https://github.com/miaucl/docker2mqtt)
+* [miaucl/systemctl2mqtt](https://github.com/miaucl/systemctl2mqtt)
+
+It was originally detached fork from the repo <https://github.com/skullydazed/docker2mqtt>, which does not seem to get evolved anymore.
